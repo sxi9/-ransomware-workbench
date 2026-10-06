@@ -114,13 +114,29 @@ async function readTable(file) {
     const X = await ensureXLSX(); const wb = X.read(await file.text(), { type: 'string', raw: true });
     return wb.SheetNames.map((n) => sheetToTable(X, wb.Sheets[n], n));
   }
-  const X = await ensureXLSX(); const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+  const X = await ensureXLSX(); const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: false, cellNF: true });
   return wb.SheetNames.map((n) => sheetToTable(X, wb.Sheets[n], n));
 }
 function sheetToTable(X, ws, name) {
-  const aoa = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
-  const fmtD = (d) => { if (isNaN(d)) return ''; const s = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; return d.getHours() || d.getMinutes() ? `${s} ${pad(d.getHours())}:${pad(d.getMinutes())}` : s; };
-  const rows = aoa.map((r) => r.map((v) => (v instanceof Date ? fmtD(v) : typeof v === 'number' && !Number.isInteger(v) ? String(Math.round(v * 1e6) / 1e6) : String(v == null ? '' : v).trim()))).filter((r) => r.some((v) => v !== ''));
+  /* read cell by cell so Excel dates become plain text without any timezone shift */
+  if (!ws || !ws['!ref']) return { name, header: [], rows: [] };
+  const range = X.utils.decode_range(ws['!ref']); const aoa = [];
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    const row = [];
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const cell = ws[X.utils.encode_cell({ r: R, c: C })]; let v = '';
+      if (cell && cell.v != null) {
+        if (cell.t === 'n' && (cell.z && X.SSF.is_date(cell.z))) { const d = X.SSF.parse_date_code(cell.v); if (d) v = `${d.y}-${pad(d.m)}-${pad(d.d)}` + (d.H || d.M ? ` ${pad(d.H)}:${pad(d.M)}` : ''); else v = String(cell.v); }
+        else if (cell.t === 'd' || cell.v instanceof Date) { const d = cell.v; v = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` + (d.getUTCHours() || d.getUTCMinutes() ? ` ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}` : ''); }
+        else if (cell.t === 'n') v = Number.isInteger(cell.v) ? String(cell.v) : String(Math.round(cell.v * 1e6) / 1e6);
+        else if (cell.t === 'b') v = cell.v ? 'TRUE' : 'FALSE';
+        else v = String(cell.w != null && cell.t === 's' ? cell.v : cell.v).trim();
+      }
+      row.push(v);
+    }
+    aoa.push(row);
+  }
+  const rows = aoa.filter((r) => r.some((v) => v !== ''));
   if (!rows.length) return { name, header: [], rows: [] };
   const hi = rows.findIndex((r) => r.filter(Boolean).length >= 2);
   return { name, header: rows[hi] || [], rows: rows.slice(hi + 1) };
