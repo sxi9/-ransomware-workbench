@@ -286,6 +286,7 @@ async function boot() {
   if (!raw.victims.length && !raw.needles.length && !raw.sheets.length) { await IDB.del(LOADED_KEY); files = await loaderScreen(false); raw = mergeAll(null, files); }
   buildTables(raw);
   if (raw.journal && raw.journal.length) { const res = addRows('journal', raw.journal.map((o) => Object.assign({ created: nowISO() }, o)), { silent: true }); if (res.added.length) console.info('journal rows imported from files:', res.added.length); }
+  if (files.length && raw.stats) setTimeout(() => toast(`Loaded ${files.length} file${files.length === 1 ? '' : 's'}: ` + mergeSummary(raw.stats), 7000), 400);
   $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built __BUILT__` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(raw.victims.length)} victims · ${fmtN(raw.needles.length)} Needles`;
   APP.setMe(APP.me);
   $('#meLbl').textContent = APP.me || 'Set your name';
@@ -309,6 +310,6 @@ async function boot() {
   document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); undo(); } });
   APP.counts(); updateUndo();
   busy(false);
-  if (!store.get('seen')) { store.set('seen', 1); setTimeout(() => toast('Tip: press / to search, double-click a cell to edit, click a row for details', 5000), 600); }
+  if (!store.get('seen') && !files.length) { store.set('seen', 1); setTimeout(() => toast('Tip: press / to search, double-click a cell to edit, click a row for details', 5000), 600); }
 }
 boot();

@@ -755,7 +755,7 @@ const findCol = (header, rules) => { const out = {}; const used = new Set(); for
 
 const VRULES = [['victim', /^victim( name)?$|^company$|^organi[sz]ation$/i], ['group', /^group$|^threat ?actor$|^actor$|^ransomware group$/i], ['created', /^discovered|^created|^date discovered|^post(ed)? date|^first seen/i], ['pub', /^data ?published\??$|^published\??$|^leak published/i], ['cc', /^country( code)?$|^cc$/i], ['countryName', /^country name$/i], ['sector', /^sector$|^industry$|^activity$/i], ['domain', /^domain|^website|^url$/i], ['attack', /^attack/i], ['type', /^entry ?type$|^type$/i], ['size', /size/i], ['claim', /claim|^leak-? ?site (claim )?url|^post url|^screenshot/i], ['rlurl', /ransomware\.?live/i], ['press', /^press|notice/i], ['basis', /^basis/i], ['added', /^added/i], ['notes', /^notes?$/i], ['description', /^description$/i]];
 const NRULES = [['name', /^(name|needle|title)$/i], ['analyst', /^(analyst|publisher|needle analyst)$/i], ['quarter', /^quarter$/i], ['actor', /^(threat ?actor|source ?name|affected ?vendor|group|actor)$/i], ['wagtail', /wagtail/i], ['intel', /^(intel live link|platform link|advance dark web link|live page|live link)$/i], ['status', /^(status|needle status)$/i], ['rstatus', /^(republish status|updated)$/i], ['pdate', /^(published( date| data)?|needle published)$/i], ['rdate', /^(re ?-? ?published( date)?|republish date|updated date|needle republished|republished)$/i], ['updby', /updated by/i], ['notes', /^notes?$/i], ['sheet', /^sheet$/i], ['extra', /^extra/i], ['victim', /^victim/i]];
-const ARULES = [['name', /^(leak ?site|site name|name|leaksite|channel name|source name)$/i], ['url', /^(leak site|site url|source urls?|public page|site domain|source link|channel link)$/i], ['working', /working link/i], ['private', /private negotiation/i], ['online', /^online|leak site status/i], ['collector', /collector|assigned/i], ['analyst', /^analyst$/i], ['kind', /ransomware\s*\//i], ['notes', /^(notes?|remarks|reason\/comment)$/i], ['added', /date added/i], ['source', /^source$/i], ['tags', /needle tags/i]];
+const ARULES = [['name', /^(leak ?site|site name|name|leaksite|channel name|source name)$/i], ['url', /^(leak ?sites?(\(s\))?|site url|source urls?|public page|site domain|source link|channel link)$/i], ['working', /working link/i], ['private', /private negotiation/i], ['online', /^online|leak site status/i], ['collector', /collector|assigned/i], ['analyst', /^analyst$/i], ['kind', /ransomware\s*\//i], ['notes', /^(notes?|remarks|reason\/comment)$/i], ['added', /date added/i], ['source', /^source$/i], ['tags', /needle tags/i]];
 const GRULES = [['name', /^group$|^name$/i], ['site', /^site status$/i], ['onion', /^onion/i], ['onions', /mirrors/i], ['collector', /collector/i], ['analyst', /^analyst/i], ['kind', /^type$/i], ['priority', /^priority$/i], ['online', /^online/i], ['leaksites', /all leak-site urls/i], ['working', /working link/i], ['private', /private negotiation/i], ['aliases', /^aliases$/i], ['added', /date added/i], ['source', /found via|^source$/i], ['tags', /tags/i], ['note', /^notes?$/i]];
 const PUBV = (v) => { v = String(v || '').trim().toLowerCase(); return v.startsWith('y') ? 'Y' : v.startsWith('p') ? 'P' : v.startsWith('n') ? 'N' : 'U'; };
 const TYPV = (v) => { v = String(v || '').trim().toLowerCase(); return v.startsWith('m') ? 'M' : v.startsWith('p') ? 'P' : 'N'; };
@@ -779,18 +779,24 @@ function mergeAll(base, files) {
   };
   const findGroup = (name) => { if (!name) return -1; for (const k of [norm(name), normG(name)]) if (gkey.has(k)) return gkey.get(k); const m = /^([^(]+)\(([^)]+)\)/.exec(name); if (m) { for (const p of [m[2], m[1]]) { const r = findGroup(p.trim()); if (r >= 0) return r; } } return -1; };
   if (base) {
-    base.groupsMeta.forEach((g, gi) => { raw.groupsMeta.push(g); raw.groups.push(base.groups[gi]); for (const k of g.keys) if (!gkey.has(k)) gkey.set(k, gi); for (const k of g.keys) { const s = normG(k); if (s && !gkey.has(s)) gkey.set(s, gi); } });
+    base.groups.forEach((G, gi) => {
+      const g = base.groupsMeta[gi] || { id: G.id, name: G.name, slug: norm(G.name), keys: [norm(G.name)].concat(String(G.aliases || '').split(/,\s*/).map(norm)).filter(Boolean) };
+      raw.groupsMeta.push(g); raw.groups.push(G);
+      for (const k of g.keys) { if (!gkey.has(k)) gkey.set(k, gi); const s = normG(k); if (s && !gkey.has(s)) gkey.set(s, gi); }
+      for (const part of G.name.split(/\s*[\/,|]\s*|\s*[()]\s*/)) for (const k of [norm(part), normG(part)]) if (k && k.length >= 3 && !gkey.has(k)) gkey.set(k, gi);
+    });
     const bvc = base.victimCols; base.victims.forEach((a) => { const o = {}; bvc.forEach((k, i) => { o[k] = a[i]; }); raw.victims.push(VC.map((k) => (o[k] == null ? '' : o[k]))); });
     const bnc = base.needleCols; base.needles.forEach((a) => { const o = {}; bnc.forEach((k, i) => { o[k] = a[i]; }); raw.needles.push(NC.map((k) => (o[k] == null ? (k === 'gi' || k === 'vi' ? -1 : k === 'score' ? 0 : '') : o[k]))); });
     raw.sheets = base.sheets.slice();
   }
+  const baseVictims = raw.victims.length, baseGroups = raw.groups.length;
   const vkeys = new Set(raw.victims.map((a) => a[0] + '|' + norm(a[1]) + '|' + dateOf(a[5])));
   const nkeys = new Set(raw.needles.map((a) => norm(a[0]) + '|' + norm(a[1]) + '|' + dateOf(a[9])));
   const assign = new Map(); // gi -> {field: [values]}
   const arec = (gi) => { if (!assign.has(gi)) assign.set(gi, {}); return assign.get(gi); };
   const aadd = (gi, f, v) => { v = String(v || '').trim(); if (!v) return; const r = arec(gi); r[f] = r[f] || []; if (!r[f].includes(v)) r[f].push(v); };
   const pendingNeedles = [];
-  const stats = { files: [], victims: 0, needles: 0, groups: 0, sheets: 0, journal: 0, skipped: [] };
+  const stats = { files: [], victims: 0, needles: 0, groups: 0, sheets: 0, journal: 0, dupVictims: 0, dupNeedles: 0, skipped: [] };
 
   for (const f of files) {
     const fs = { name: f.name, kinds: [] };
@@ -805,7 +811,7 @@ function mergeAll(base, files) {
           const victim = g(r, 'victim'); if (!victim) continue;
           const gi = addGroup(g(r, 'group') || 'Unknown');
           const created = dateClean(g(r, 'created')) || todayISO();
-          const key = gi + '|' + norm(victim) + '|' + dateOf(created); if (vkeys.has(key)) continue; vkeys.add(key);
+          const key = gi + '|' + norm(victim) + '|' + dateOf(created); if (vkeys.has(key)) { stats.dupVictims++; continue; } vkeys.add(key);
           const id = 'vf' + hash36(key);
           raw.victims.push([gi, victim, g(r, 'domain'), g(r, 'cc').toUpperCase().slice(0, 3), g(r, 'sector'), created, dateClean(g(r, 'attack')), PUBV(g(r, 'pub')), g(r, 'basis') || g(r, 'description'), TYPV(g(r, 'type')), g(r, 'size'), g(r, 'claim'), '', g(r, 'press'), dateClean(g(r, 'added')), id, g(r, 'rlurl'), g(r, 'notes')]);
           stats.victims++;
@@ -834,7 +840,8 @@ function mergeAll(base, files) {
           const prioCol = header.findIndex((h, i) => !Object.values(c).includes(i) && s.rows.filter((r) => /^p[0-4]$/i.test(String(r[i] || '').trim())).length >= 3);
           for (const r of s.rows) {
             const nm = g(r, 'name'); if (!nm || /^(name|leak ?site|site name)$/i.test(nm)) continue;
-            let gi = findGroup(nm); if (gi < 0) gi = addGroup(nm, { inledger: 'No', source: s.name });
+            const hasData = ['url', 'working', 'private', 'online', 'collector', 'kind', 'added'].some((k) => g(r, k));
+            let gi = findGroup(nm); if (gi < 0) { if (!hasData) continue; gi = addGroup(nm, { source: s.name }); }
             aadd(gi, 'sheets', s.name);
             splitUrls(g(r, 'url')).forEach((u) => aadd(gi, 'leaksites', u)); splitUrls(g(r, 'working')).forEach((u) => aadd(gi, 'working', u)); splitUrls(g(r, 'private')).forEach((u) => aadd(gi, 'private', u));
             aadd(gi, 'online', /inactive/i.test(s.name) ? 'No' : g(r, 'online'));
@@ -876,7 +883,7 @@ function mergeAll(base, files) {
     const closest = (c, pdate) => { if (c.length === 1 || !pdate) return c[0]; let best = c[0], bd = Infinity; for (const vi of c) { const ms = msOf(raw.victims[vi][5]); if (isNaN(ms)) continue; const d = Math.abs(msOf(pdate) - ms); if (d < bd) { bd = d; best = vi; } } return best; };
     const match = (gi, vname, pdate) => { const n = norm(vname); if (gi < 0 || !n) return [-1, 0]; let c = exact.get(gi + '|' + n); if (c) return [closest(c, pdate), 1]; c = dom.get(gi + '|' + n); if (c) return [closest(c, pdate), 0.97]; let best = -1, bs = 0; const head = n.slice(0, 4); for (const [vn, vi] of byGroup.get(gi) || []) { if (!(vn.startsWith(head) || n.startsWith(vn.slice(0, 4)))) continue; const s = vn.startsWith(n) || n.startsWith(vn) ? 0.9 + 0.08 * Math.min(vn.length, n.length) / Math.max(vn.length, n.length) : dice(n, vn); if (s > bs) { bs = s; best = vi; } } return bs >= 0.86 ? [best, Math.round(bs * 100) / 100] : [-1, 0]; };
     for (const p of pendingNeedles) {
-      const key = norm(p.sheet) + '|' + norm(p.name) + '|' + dateOf(p.pdate); if (nkeys.has(key)) continue; nkeys.add(key);
+      const key = norm(p.sheet) + '|' + norm(p.name) + '|' + dateOf(p.pdate); if (nkeys.has(key)) { stats.dupNeedles++; continue; } nkeys.add(key);
       const vp = victimPart(p.name); const vpart = p.victimCol || vp.v;
       let gi = findGroup(p.actor); if (gi < 0 && vp.g) gi = findGroup(vp.g);
       let [vi, score] = match(gi, vpart, p.pdate); if (vi < 0 && gi >= 0 && vpart !== p.name) [vi, score] = match(gi, p.name, p.pdate);
@@ -884,11 +891,17 @@ function mergeAll(base, files) {
       stats.needles++;
     }
   }
+  { const has = new Set(raw.victims.map((a) => a[0])); raw.groups.forEach((G, gi) => { if (gi >= baseGroups) G.inledger = has.has(gi) ? 'Yes' : 'No'; }); stats.newGroups = raw.groups.length - baseGroups; }
   if (!raw.asOf) { let last = ''; raw.victims.forEach((a) => { const d = dateOf(a[5]); if (d > last && d <= todayISO()) last = d; }); raw.asOf = last || todayISO(); }
   raw.stats = stats;
   return raw;
 }
 
+function mergeSummary(st) {
+  const parts = [`${fmtN(st.victims)} new victims` + (st.dupVictims ? ` (${fmtN(st.dupVictims)} already present, skipped)` : ''), `${fmtN(st.needles)} new Needles` + (st.dupNeedles ? ` (${fmtN(st.dupNeedles)} already present)` : '')];
+  if (st.newGroups) parts.push(`${fmtN(st.newGroups)} new groups`); if (st.sheets) parts.push(`${fmtN(st.sheets)} sheets kept under Sheets`); if (st.journal) parts.push(`${fmtN(st.journal)} log entries`);
+  return parts.join(', ') + '.';
+}
 /* ---- loader UI ---- */
 let LOADED_KEY = 'files';
 async function loadedFiles() { return (await IDB.get(LOADED_KEY)) || []; }
@@ -933,6 +946,7 @@ async function dataDialog() {
   const files = await loadedFiles(); const hasBase = !!DB.embedded;
   const render = () => `<p style="margin-top:0">${hasBase ? `This page carries a packed ledger as of ${DB.asOf}. ` : ''}Files you load are merged in: new victims and Needles are added, Needles are matched to victims, leak-site sheets fill the Groups tab, and every sheet appears under Sheets. The files stay in this browser only.</p>
     <ul style="margin:0 0 12px 18px;font-size:12.5px">${files.length ? files.map((f, i) => `<li style="margin-bottom:4px"><b>${esc(f.name)}</b> <span style="color:var(--ink-3)">loaded ${esc(f.when)}</span><br>${esc(describeFile(f))} <button class="ib" data-rm="${i}" title="Remove this file" style="vertical-align:middle">${ico('trash')}</button></li>`).join('') : '<li>No files loaded</li>'}</ul>
+    ${DB.raw && DB.raw.stats ? `<p style="font-size:12.5px"><b>Result of the last load:</b> ${esc(mergeSummary(DB.raw.stats))}</p>` : ''}
     ${DB.raw && DB.raw.stats && DB.raw.stats.skipped.length ? `<p style="font-size:12px;color:var(--ink-3)">Skipped: ${esc(DB.raw.stats.skipped.join('; '))}</p>` : ''}`;
   modal({ title: 'Data files', wide: true, body: `<div data-body>${render()}</div>`, foot: `<button class="btn" data-x>Close</button><button class="btn accent" data-add>${ico('upload')}Add files</button><button class="btn" data-apply disabled>${ico('check')}Apply and reload</button>`, wire: (bg, close) => {
     let dirty = false; const apply = $('[data-apply]', bg);
@@ -1558,7 +1572,8 @@ async function boot() {
   if (!raw.victims.length && !raw.needles.length && !raw.sheets.length) { await IDB.del(LOADED_KEY); files = await loaderScreen(false); raw = mergeAll(null, files); }
   buildTables(raw);
   if (raw.journal && raw.journal.length) { const res = addRows('journal', raw.journal.map((o) => Object.assign({ created: nowISO() }, o)), { silent: true }); if (res.added.length) console.info('journal rows imported from files:', res.added.length); }
-  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-06 16:55 UTC` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(raw.victims.length)} victims · ${fmtN(raw.needles.length)} Needles`;
+  if (files.length && raw.stats) setTimeout(() => toast(`Loaded ${files.length} file${files.length === 1 ? '' : 's'}: ` + mergeSummary(raw.stats), 7000), 400);
+  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-06 17:08 UTC` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(raw.victims.length)} victims · ${fmtN(raw.needles.length)} Needles`;
   APP.setMe(APP.me);
   $('#meLbl').textContent = APP.me || 'Set your name';
   APP.views.victims = TableView($('#host-victims'), { table: 'victims', defaultSort: { k: 'created', d: -1 }, dateKey: 'created', facets: ['group', 'sector', 'cc'], related: relVictim, placeholder: 'Search victims: company, group, domain, country, sector, onion…',
@@ -1581,7 +1596,7 @@ async function boot() {
   document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); undo(); } });
   APP.counts(); updateUndo();
   busy(false);
-  if (!store.get('seen')) { store.set('seen', 1); setTimeout(() => toast('Tip: press / to search, double-click a cell to edit, click a row for details', 5000), 600); }
+  if (!store.get('seen') && !files.length) { store.set('seen', 1); setTimeout(() => toast('Tip: press / to search, double-click a cell to edit, click a row for details', 5000), 600); }
 }
 boot();
 
