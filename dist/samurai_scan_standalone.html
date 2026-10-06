@@ -595,7 +595,7 @@ function buildTables(raw) {
     col('pub', 'Data published', 'enum', 118, { edit: true, opts: ['Yes', 'Partial', 'No', 'Unknown'] }), col('cc', 'Country', 'text', 80, { edit: true }), col('country', 'Country name', 'text', 140, { hide: true }),
     col('sector', 'Sector', 'text', 150, { edit: true }), col('domain', 'Domain', 'text', 170, { edit: true }), col('attack', 'Attack (est.)', 'date', 110, { edit: true }),
     col('type', 'Entry type', 'enum', 100, { edit: true, opts: ['Named', 'Masked', 'Placeholder'] }), col('size', 'Data size', 'text', 100, { edit: true }),
-    col('onion', 'Group onion site', 'onion', 260), col('claim', 'Leak-site claim URL', 'onion', 240, { edit: true }), col('rlurl', 'ransomware.live', 'link', 130),
+    col('onion', 'Group onion site', 'onion', 260), col('claim', 'Leak-site claim URL', 'onion', 240, { edit: true }), col('rlurl', 'ransomware.live', 'link', 130, { imp: true }),
     col('press', 'Press / notices', 'link', 160, { edit: true }), col('basis', 'Basis (listing text)', 'text', 200, { edit: true, hide: true }),
     col('collector', 'Assigned collector', 'text', 130, { hide: true }), col('sitestat', 'Group site status', 'enum', 110, { hide: true, opts: SITE }),
     col('added', 'Added to sheet', 'date', 130, { hide: true }), col('notes', 'Notes', 'text', 220, { edit: true })
@@ -1268,10 +1268,19 @@ async function importInto(t) {
   if (!Array.isArray(sheets)) sheets = [sheets];
   sheets = sheets.filter((s) => s.header && s.header.length && s.rows && s.rows.length);
   if (!sheets.length) { toast('No rows found in that file'); return; }
-  const target = t.cols.filter((c) => c.edit || ['group', 'victim'].includes(c.k));
-  const guess = (h) => { const n = norm(h); let best = target.find((c) => norm(c.name) === n || norm(c.k) === n); if (!best) best = target.find((c) => n && (norm(c.name).includes(n) || n.includes(norm(c.name)))); return best ? best.k : ''; };
+  const target = t.cols.filter((c) => c.edit || c.imp || ['group', 'victim'].includes(c.k));
+  const RULES = { victims: VRULES, needles: NRULES, groups: GRULES, mixed: VRULES }[t.id] || [];
+  const ALIAS = { countryName: 'country', description: 'basis', url: 'leaksites' };
+  const guess = (h, used) => {
+    const hs = String(h || '').trim(), n = norm(hs); if (!n) return '';
+    let best = target.find((c) => norm(c.name) === n || norm(c.k) === n);
+    if (!best) { const rule = RULES.find(([k, re]) => re.test(hs) && target.some((c) => c.k === (ALIAS[k] || k))); if (rule) best = target.find((c) => c.k === (ALIAS[rule[0]] || rule[0])); }
+    if (!best) best = target.find((c) => norm(c.name).includes(n) || n.includes(norm(c.name)));
+    if (best && used && used.has(best.k)) return ''; if (best && used) used.add(best.k);
+    return best ? best.k : '';
+  };
   let si = 0;
-  const render = () => `<label style="display:block;margin-bottom:10px;font-size:12.5px">Sheet <select data-sheet>${sheets.map((s, i) => `<option value="${i}"${i === si ? ' selected' : ''}>${esc(s.name)} (${fmtN(s.rows.length)} rows)</option>`).join('')}</select></label><table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr><th style="text-align:left;padding:4px">Column in file</th><th style="text-align:left;padding:4px">Goes into</th><th style="text-align:left;padding:4px">Example</th></tr>${sheets[si].header.map((h, i) => `<tr><td style="padding:4px;border-top:1px solid var(--grid)">${esc(h || 'Column ' + (i + 1))}</td><td style="padding:4px;border-top:1px solid var(--grid)"><select data-m="${i}" style="max-width:220px"><option value="">(skip)</option>${target.map((c) => `<option value="${c.k}"${guess(h) === c.k ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></td><td style="padding:4px;border-top:1px solid var(--grid);color:var(--ink-3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((sheets[si].rows[0] || [])[i] || '')}</td></tr>`).join('')}</table>`;
+  const render = () => { const used = new Set(); const G = sheets[si].header.map((h) => guess(h, used)); return `<label style="display:block;margin-bottom:10px;font-size:12.5px">Sheet <select data-sheet>${sheets.map((s, i) => `<option value="${i}"${i === si ? ' selected' : ''}>${esc(s.name)} (${fmtN(s.rows.length)} rows)</option>`).join('')}</select></label><table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr><th style="text-align:left;padding:4px">Column in file</th><th style="text-align:left;padding:4px">Goes into</th><th style="text-align:left;padding:4px">Example</th></tr>${sheets[si].header.map((h, i) => `<tr><td style="padding:4px;border-top:1px solid var(--grid)">${esc(h || 'Column ' + (i + 1))}</td><td style="padding:4px;border-top:1px solid var(--grid)"><select data-m="${i}" style="max-width:220px"><option value="">(skip)</option>${target.map((c) => `<option value="${c.k}"${G[i] === c.k ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></td><td style="padding:4px;border-top:1px solid var(--grid);color:var(--ink-3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((sheets[si].rows[0] || [])[i] || '')}</td></tr>`).join('')}</table>`; };
   modal({ title: 'Import into ' + t.title, wide: true, body: `<div data-body>${render()}</div><p style="font-size:12.5px;color:var(--ink-3)">Rows that already exist (same key) are skipped. Everything you import is marked as added and can be undone.</p>`, foot: `<button class="btn" data-x>Cancel</button><button class="btn accent" data-ok>Import</button>`, wire: (bg, close) => {
     bg.addEventListener('change', (e) => { if (e.target.matches('[data-sheet]')) { si = +e.target.value; bg.querySelector('[data-body]').innerHTML = render(); } });
     bg.querySelector('[data-ok]').onclick = () => {
@@ -1573,7 +1582,7 @@ async function boot() {
   buildTables(raw);
   if (raw.journal && raw.journal.length) { const res = addRows('journal', raw.journal.map((o) => Object.assign({ created: nowISO() }, o)), { silent: true }); if (res.added.length) console.info('journal rows imported from files:', res.added.length); }
   if (files.length && raw.stats) setTimeout(() => toast(`Loaded ${files.length} file${files.length === 1 ? '' : 's'}: ` + mergeSummary(raw.stats), 7000), 400);
-  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-06 17:08 UTC` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(raw.victims.length)} victims · ${fmtN(raw.needles.length)} Needles`;
+  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-06 17:13 UTC` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(raw.victims.length)} victims · ${fmtN(raw.needles.length)} Needles`;
   APP.setMe(APP.me);
   $('#meLbl').textContent = APP.me || 'Set your name';
   APP.views.victims = TableView($('#host-victims'), { table: 'victims', defaultSort: { k: 'created', d: -1 }, dateKey: 'created', facets: ['group', 'sector', 'cc'], related: relVictim, placeholder: 'Search victims: company, group, domain, country, sector, onion…',

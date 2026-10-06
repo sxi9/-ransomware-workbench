@@ -307,10 +307,19 @@ async function importInto(t) {
   if (!Array.isArray(sheets)) sheets = [sheets];
   sheets = sheets.filter((s) => s.header && s.header.length && s.rows && s.rows.length);
   if (!sheets.length) { toast('No rows found in that file'); return; }
-  const target = t.cols.filter((c) => c.edit || ['group', 'victim'].includes(c.k));
-  const guess = (h) => { const n = norm(h); let best = target.find((c) => norm(c.name) === n || norm(c.k) === n); if (!best) best = target.find((c) => n && (norm(c.name).includes(n) || n.includes(norm(c.name)))); return best ? best.k : ''; };
+  const target = t.cols.filter((c) => c.edit || c.imp || ['group', 'victim'].includes(c.k));
+  const RULES = { victims: VRULES, needles: NRULES, groups: GRULES, mixed: VRULES }[t.id] || [];
+  const ALIAS = { countryName: 'country', description: 'basis', url: 'leaksites' };
+  const guess = (h, used) => {
+    const hs = String(h || '').trim(), n = norm(hs); if (!n) return '';
+    let best = target.find((c) => norm(c.name) === n || norm(c.k) === n);
+    if (!best) { const rule = RULES.find(([k, re]) => re.test(hs) && target.some((c) => c.k === (ALIAS[k] || k))); if (rule) best = target.find((c) => c.k === (ALIAS[rule[0]] || rule[0])); }
+    if (!best) best = target.find((c) => norm(c.name).includes(n) || n.includes(norm(c.name)));
+    if (best && used && used.has(best.k)) return ''; if (best && used) used.add(best.k);
+    return best ? best.k : '';
+  };
   let si = 0;
-  const render = () => `<label style="display:block;margin-bottom:10px;font-size:12.5px">Sheet <select data-sheet>${sheets.map((s, i) => `<option value="${i}"${i === si ? ' selected' : ''}>${esc(s.name)} (${fmtN(s.rows.length)} rows)</option>`).join('')}</select></label><table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr><th style="text-align:left;padding:4px">Column in file</th><th style="text-align:left;padding:4px">Goes into</th><th style="text-align:left;padding:4px">Example</th></tr>${sheets[si].header.map((h, i) => `<tr><td style="padding:4px;border-top:1px solid var(--grid)">${esc(h || 'Column ' + (i + 1))}</td><td style="padding:4px;border-top:1px solid var(--grid)"><select data-m="${i}" style="max-width:220px"><option value="">(skip)</option>${target.map((c) => `<option value="${c.k}"${guess(h) === c.k ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></td><td style="padding:4px;border-top:1px solid var(--grid);color:var(--ink-3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((sheets[si].rows[0] || [])[i] || '')}</td></tr>`).join('')}</table>`;
+  const render = () => { const used = new Set(); const G = sheets[si].header.map((h) => guess(h, used)); return `<label style="display:block;margin-bottom:10px;font-size:12.5px">Sheet <select data-sheet>${sheets.map((s, i) => `<option value="${i}"${i === si ? ' selected' : ''}>${esc(s.name)} (${fmtN(s.rows.length)} rows)</option>`).join('')}</select></label><table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr><th style="text-align:left;padding:4px">Column in file</th><th style="text-align:left;padding:4px">Goes into</th><th style="text-align:left;padding:4px">Example</th></tr>${sheets[si].header.map((h, i) => `<tr><td style="padding:4px;border-top:1px solid var(--grid)">${esc(h || 'Column ' + (i + 1))}</td><td style="padding:4px;border-top:1px solid var(--grid)"><select data-m="${i}" style="max-width:220px"><option value="">(skip)</option>${target.map((c) => `<option value="${c.k}"${G[i] === c.k ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></td><td style="padding:4px;border-top:1px solid var(--grid);color:var(--ink-3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((sheets[si].rows[0] || [])[i] || '')}</td></tr>`).join('')}</table>`; };
   modal({ title: 'Import into ' + t.title, wide: true, body: `<div data-body>${render()}</div><p style="font-size:12.5px;color:var(--ink-3)">Rows that already exist (same key) are skipped. Everything you import is marked as added and can be undone.</p>`, foot: `<button class="btn" data-x>Cancel</button><button class="btn accent" data-ok>Import</button>`, wire: (bg, close) => {
     bg.addEventListener('change', (e) => { if (e.target.matches('[data-sheet]')) { si = +e.target.value; bg.querySelector('[data-body]').innerHTML = render(); } });
     bg.querySelector('[data-ok]').onclick = () => {

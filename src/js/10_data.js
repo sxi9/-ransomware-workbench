@@ -141,7 +141,7 @@ function buildTables(raw) {
     col('pub', 'Data published', 'enum', 118, { edit: true, opts: ['Yes', 'Partial', 'No', 'Unknown'] }), col('cc', 'Country', 'text', 80, { edit: true }), col('country', 'Country name', 'text', 140, { hide: true }),
     col('sector', 'Sector', 'text', 150, { edit: true }), col('domain', 'Domain', 'text', 170, { edit: true }), col('attack', 'Attack (est.)', 'date', 110, { edit: true }),
     col('type', 'Entry type', 'enum', 100, { edit: true, opts: ['Named', 'Masked', 'Placeholder'] }), col('size', 'Data size', 'text', 100, { edit: true }),
-    col('onion', 'Group onion site', 'onion', 260), col('claim', 'Leak-site claim URL', 'onion', 240, { edit: true }), col('rlurl', 'ransomware.live', 'link', 130),
+    col('onion', 'Group onion site', 'onion', 260), col('claim', 'Leak-site claim URL', 'onion', 240, { edit: true }), col('rlurl', 'ransomware.live', 'link', 130, { imp: true }),
     col('press', 'Press / notices', 'link', 160, { edit: true }), col('basis', 'Basis (listing text)', 'text', 200, { edit: true, hide: true }),
     col('collector', 'Assigned collector', 'text', 130, { hide: true }), col('sitestat', 'Group site status', 'enum', 110, { hide: true, opts: SITE }),
     col('added', 'Added to sheet', 'date', 130, { hide: true }), col('notes', 'Notes', 'text', 220, { edit: true })
