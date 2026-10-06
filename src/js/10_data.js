@@ -10,7 +10,8 @@ const JSTATUS = ['Open', 'In progress', 'Done', 'Watching'];
 const PRIO = ['P0', 'P1', 'P2', 'P3', 'P4'];
 
 async function unpack() {
-  const el = $('#dbz'), bin = atob(el.textContent.trim()), bytes = new Uint8Array(bin.length);
+  const el = $('#dbz'); const txt = el.textContent.trim(); if (!txt) { el.textContent = ''; return null; }
+  const bin = atob(txt), bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   el.textContent = '';
   if (window.DecompressionStream) {
@@ -149,7 +150,7 @@ function buildTables(raw) {
   const vrows = new Array(V.length);
   for (let i = 0; i < V.length; i++) {
     const a = V[i]; const gm = GM[a[ci.gi]]; const g = gById(a[ci.gi]);
-    vrows[i] = { _id: 'v' + i, _src: 'seed', _gi: a[ci.gi], group: g ? g.name : gm.name, victim: a[ci.victim], domain: a[ci.domain], cc: a[ci.cc], country: DB.countries[a[ci.cc]] || '', sector: a[ci.sector], created: a[ci.created].replace('T', ' '), attack: a[ci.attack], pub: PUBL[a[ci.pub]] || 'Unknown', basis: a[ci.basis], type: TYPL[a[ci.type]] || 'Named', size: a[ci.size], claim: a[ci.claim], rl: a[ci.rl], rlurl: '', press: a[ci.press], added: a[ci.added].replace('T', ' '), onion: '', collector: '', sitestat: '', notes: '' };
+    vrows[i] = { _id: (ci.id != null && a[ci.id]) || 'v' + i, _src: 'seed', _gi: a[ci.gi], group: g ? g.name : gm.name, victim: a[ci.victim], domain: a[ci.domain], cc: a[ci.cc], country: DB.countries[a[ci.cc]] || '', sector: a[ci.sector], created: (a[ci.created] || '').replace('T', ' '), attack: a[ci.attack], pub: PUBL[a[ci.pub]] || 'Unknown', basis: a[ci.basis], type: TYPL[a[ci.type]] || 'Named', size: a[ci.size], claim: a[ci.claim], rl: a[ci.rl], rlurl: (ci.rlurl != null && a[ci.rlurl]) || '', press: a[ci.press], added: (a[ci.added] || '').replace('T', ' '), onion: '', collector: '', sitestat: '', notes: (ci.notes != null && a[ci.notes]) || '' };
   }
   const victims = defTable('victims', 'Victims', vcols, vrows, (r) => norm(r.group) + '|' + String(r.victim || '').trim().toLowerCase() + '|' + dateOf(r.created));
   applyDelta(victims, loadDelta('victims'));
@@ -173,8 +174,9 @@ function buildTables(raw) {
   const nrows = new Array(N.length);
   for (let i = 0; i < N.length; i++) {
     const a = N[i]; const g = a[ni.gi] >= 0 ? gById(a[ni.gi]) : null;
-    nrows[i] = { _id: 'n' + i, _src: 'seed', _vi: a[ni.vi], _gi: a[ni.gi], sheet: a[ni.sheet], name: a[ni.name], analyst: a[ni.analyst], quarter: a[ni.quarter], actor: a[ni.actor], wagtail: a[ni.wagtail], intel: a[ni.intel], status: a[ni.status], rstatus: a[ni.rstatus], pdate: a[ni.pdate], rdate: a[ni.rdate], updby: a[ni.updby], notes: a[ni.notes], extra: a[ni.extra], srow: a[ni.srow], victim: a[ni.vpart], score: a[ni.score], match: a[ni.vi] >= 0 ? (a[ni.score] >= 0.98 ? 'Exact' : 'Close') : 'None', onion: g ? g.onion : '' };
+    nrows[i] = { _id: (ni.id != null && a[ni.id]) || 'n' + i, _src: 'seed', _vi: a[ni.vi], _gi: a[ni.gi], sheet: a[ni.sheet], name: a[ni.name], analyst: a[ni.analyst], quarter: a[ni.quarter], actor: a[ni.actor], wagtail: a[ni.wagtail], intel: a[ni.intel], status: a[ni.status], rstatus: a[ni.rstatus], pdate: a[ni.pdate], rdate: a[ni.rdate], updby: a[ni.updby], notes: a[ni.notes], extra: a[ni.extra], srow: a[ni.srow], victim: a[ni.vpart], score: a[ni.score], match: a[ni.vi] >= 0 ? (a[ni.score] >= 0.98 ? 'Exact' : 'Close') : 'None', onion: g ? g.onion : '' };
   }
+  DB.vByPos = vrows;
   const needles = defTable('needles', 'Needles', ncols, nrows, (r) => norm(r.sheet) + '|' + String(r.name || '').trim().toLowerCase() + '|' + dateOf(r.pdate));
   applyDelta(needles, loadDelta('needles'));
   needles.cols.find((c) => c.k === 'sheet').opts = Array.from(new Set(needles.rows.map((r) => r.sheet))).filter(Boolean);
@@ -195,7 +197,7 @@ function buildTables(raw) {
     col('analyst', 'Analyst', 'text', 110, { edit: true }), col('onion', 'Onion / leak URL', 'onion', 240, { edit: true }), col('needle', 'Needle / Wagtail link', 'link', 150, { edit: true }), col('link', 'Other link', 'link', 150, { edit: true }),
     col('country', 'Country', 'text', 80, { edit: true }), col('sector', 'Sector', 'text', 130, { edit: true }), col('tags', 'Tags', 'text', 130, { edit: true }), col('notes', 'Notes', 'text', 320, { edit: true }), col('created', 'Logged at', 'date', 130)
   ];
-  const journal = defTable('journal', 'Investigator log', jcols, [], (r) => r._id);
+  const journal = defTable('journal', 'Investigator log', jcols, [], (r) => [r.date, r.time, r.type, norm(r.group), norm(r.victim), norm(r.notes)].join('|'));
   applyDelta(journal, loadDelta('journal'));
 
   recount();
@@ -218,7 +220,7 @@ function buildMixed() {
   const vIndex = new Map(); // norm(group)|norm(victim) -> victim row (for needles added later)
   for (const r of victims.rows) vIndex.set(norm(r.group) + '|' + norm(r.victim), r);
   for (const n of needles.rows) {
-    let v = n._vi >= 0 ? victims.byId.get('v' + n._vi) : null;
+    let v = n._vi >= 0 ? (DB.vByPos[n._vi] && victims.byId.has(DB.vByPos[n._vi]._id) ? DB.vByPos[n._vi] : null) : null;
     if (!v && n._src === 'added' && n.victim) { const g = n._g || groupFor(n.actor); if (g) v = vIndex.get(norm(g.name) + '|' + norm(n.victim)) || null; if (v) { n.match = 'Exact'; } }
     n._v = v;
     if (v) { const cur = byV.get(v._id); if (!cur || (n.pdate || '') > (cur.pdate || '')) byV.set(v._id, n); }

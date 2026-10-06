@@ -581,15 +581,24 @@ def main():
             with open(os.path.join(jsdir, fn), encoding='utf-8') as f:
                 js += f'/* ---- {fn} ---- */\n' + f.read() + '\n'
     html = html.replace('<!-- @@JS@@ -->', '<script>\n' + js + '</script>')
-    html = html.replace('__DATA_B64__', b64).replace('__BUILT__', db['built']).replace('__ASOF__', db['asOf'])
+    vendor = os.path.join(ROOT, 'vendor', 'xlsx.full.min.js')
+    if os.path.exists(vendor):
+        with open(vendor, encoding='utf-8') as f:
+            html = html.replace('<!-- @@VENDOR@@ -->', '<script>/* SheetJS CE 0.18.5, Apache-2.0 */\n' + f.read() + '\n</script>')
+    page = html.replace('__BUILT__', db['built']).replace('__ASOF__', db['asOf'])
     out = os.path.join(DIST, 'samurai_scan_workbench.html')
     with open(out, 'w', encoding='utf-8') as f:
-        f.write(html)
+        f.write(page.replace('__DATA_B64__', b64))
+    # standalone: same app, no data inside; the user loads CSV / Excel files in the browser
+    out2 = os.path.join(DIST, 'samurai_scan_standalone.html')
+    with open(out2, 'w', encoding='utf-8') as f:
+        f.write(page.replace('__DATA_B64__', '').replace('<title>Samurai Scan</title>', '<title>Samurai Scan (load your files)</title>'))
+    print(f'standalone page -> {out2} ({os.path.getsize(out2)/1e3:.0f} KB)')
 
     print(f'victims {len(victims):,}  groups {len(grows):,} ({len(extra_groups)} only in assignments)  needles {len(needles):,}  raw sheets {len(sheets)}')
     for k in sorted(nstats):
         print(f'  {k}: {nstats[k]:,}')
-    print(f'db.json {len(raw)/1e6:.1f} MB  gzip {len(gz)/1e6:.1f} MB  html {len(html)/1e6:.1f} MB -> {out}')
+    print(f'db.json {len(raw)/1e6:.1f} MB  gzip {len(gz)/1e6:.1f} MB  page {os.path.getsize(out)/1e6:.1f} MB -> {out}')
 
 
 if __name__ == '__main__':

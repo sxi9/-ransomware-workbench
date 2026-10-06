@@ -1,5 +1,5 @@
 /* ===== tabs, dashboard, investigator log, backup, boot ===== */
-const APP = { views: {}, me: store.get('me') || '' };
+const APP = { views: {}, me: '' };
 
 /* ---- adding rows with per-table normalisation ---- */
 APP.addTo = function (tid, objs) {
@@ -42,7 +42,6 @@ APP.counts = function () {
   const n = (id, v) => { const e = $('#n-' + id); if (e) e.textContent = fmtN(v); };
   n('mixed', DB.tables.mixed.rows.length); n('victims', DB.tables.victims.rows.length); n('needles', DB.tables.needles.rows.length); n('groups', DB.tables.groups.rows.length); n('sheets', DB.sheets.length); n('journal', DB.tables.journal.rows.length);
   const day = APP.day || DB.asOf; n('today', DB.tables.victims.rows.filter((r) => dateOf(r.created) === day).length);
-  $('#stat').textContent = `Ledger as of ${DB.asOf} · built __BUILT__`;
 };
 
 /* ---- cross-tab navigation ---- */
@@ -55,7 +54,7 @@ APP.showNeedles = (q) => APP.go('needles', (v) => v.setQuery(q || ''));
 function relVictim(r) {
   const v = r._v || r; const g = groupFor(v.group); const out = [];
   if (g) out.push({ id: 'g', title: 'Group', items: [{ label: g.name, sub: `${fmtN(g.victims)} victims · site ${g.site}${g.collector ? ' · ' + g.collector : ''}`, go: () => APP.showGroup(g.name) }] });
-  const ns = DB.tables.needles.rows.filter((n) => n._v === v || (n._vi >= 0 && 'v' + n._vi === v._id));
+  const ns = DB.tables.needles.rows.filter((n) => n._v === v || (n._vi >= 0 && DB.vByPos[n._vi] === v));
   out.push({ id: 'n', title: 'Needles for this victim', empty: 'No Needle yet', items: ns.map((n) => ({ label: n.name, sub: `${n.rstatus || n.status || ''} ${n.pdate || ''}`.trim(), go: () => APP.go('needles', (x) => x.focus(n._id)) })) });
   const same = DB.tables.victims.rows.filter((x) => x !== v && norm(x.victim) === norm(v.victim)).slice(0, 8);
   if (same.length) out.push({ id: 's', title: 'Same victim elsewhere', items: same.map((x) => ({ label: x.group, sub: dateOf(x.created), go: () => APP.go('victims', (t) => t.focus(x._id)) })) });
@@ -272,15 +271,22 @@ APP.help = function () {
   <h4>Editing</h4><p>Double-click a cell to edit it. Enter saves, Escape cancels. Click a row for the detail panel with every field, copy buttons and related rows. Select rows with the checkboxes to copy, export or delete them. Undo is in the toolbar. Everything is saved in this browser; use <b>Backup</b> to download your changes or move them to another computer.</p>
   <h4>Onion links</h4><p>Addresses ending in .onion show a TOR tag. Click one to copy it, then open it in Tor Browser. Other links open in a new tab.</p>
   <h4>Export and import</h4><p>Export gives Excel, CSV or JSON of what you see, or the whole database as one workbook with every tab. Import merges rows from Excel, CSV or JSON with a column mapping; duplicates are skipped.</p>
-  <h4>Updating the ledger</h4><p>The packed ledger is current to ${DB.asOf}. Rebuild the file with <code>python3 build/build.py</code> after replacing the data files, then restore your backup.</p>` });
+  <h4>Loading data</h4><p>${DB.embedded ? `The packed ledger is current to ${DB.asOf}. <b>Data</b> in the top bar merges more files (a newer ledger CSV, tracker or assignments workbook, or exports from this page) without rebuilding.` : 'This page has no data inside it. <b>Data</b> in the top bar shows the files you loaded, lets you add newer ones or remove old ones, and remembers them in this browser.'} Recognised sheets: ledger victims (Group, Victim, Discovered…), Needle trackers (Name, Analyst, Wagtail…), leak-site and assignment sheets, and this page's own Victims, Needles, Groups and Investigator exports. Anything else becomes a raw sheet.</p>` });
 };
 
 /* ---- boot ---- */
 async function boot() {
-  let raw;
-  try { raw = await unpack(); } catch (e) { $('#busyMsg').textContent = 'Could not unpack the database: ' + e.message + '. Use a current Chrome, Edge, Firefox or Safari.'; return; }
+  let base, raw;
+  try { base = await unpack(); } catch (e) { $('#busyMsg').textContent = 'Could not unpack the database: ' + e.message + '. Use a current Chrome, Edge, Firefox or Safari.'; return; }
+  DB.embedded = !!base; setStorageMode(DB.embedded); LOADED_KEY = DB.embedded ? 'files:embedded' : 'files:standalone'; APP.me = store.get('me') || '';
+  let files = await loadedFiles();
+  if (!base && !files.length) files = await loaderScreen(false);
   busy('Building tables...'); await new Promise((r) => setTimeout(r, 20));
+  try { raw = files.length || !base ? mergeAll(base, files) : base; } catch (e) { console.error(e); toast('Could not merge the loaded files: ' + e.message, 6000); raw = base || mergeAll(null, []); }
+  if (!raw.victims.length && !raw.needles.length && !raw.sheets.length) { await IDB.del(LOADED_KEY); files = await loaderScreen(false); raw = mergeAll(null, files); }
   buildTables(raw);
+  if (raw.journal && raw.journal.length) { const res = addRows('journal', raw.journal.map((o) => Object.assign({ created: nowISO() }, o)), { silent: true }); if (res.added.length) console.info('journal rows imported from files:', res.added.length); }
+  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built __BUILT__` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(raw.victims.length)} victims · ${fmtN(raw.needles.length)} Needles`;
   APP.setMe(APP.me);
   $('#meLbl').textContent = APP.me || 'Set your name';
   APP.views.victims = TableView($('#host-victims'), { table: 'victims', defaultSort: { k: 'created', d: -1 }, dateKey: 'created', facets: ['group', 'sector', 'cc'], related: relVictim, placeholder: 'Search victims: company, group, domain, country, sector, onion…',
@@ -298,6 +304,7 @@ async function boot() {
   $$('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => APP.go(b.dataset.tab)));
   $('#btnMe').onclick = () => modal({ title: 'Your name', body: `<label class="form" style="display:block">Analyst name<input data-me value="${esc(APP.me)}" list="dl-analysts" style="height:32px;border:1px solid var(--grid);border-radius:5px;padding:0 8px;width:100%;margin-top:4px"></label><p style="font-size:12.5px;color:var(--ink-3)">Used as the default analyst on log entries and Needles you add.</p>`, foot: `<button class="btn" data-x>Cancel</button><button class="btn accent" data-ok>Save</button>`, wire: (bg, close) => { const save = () => { APP.setMe(bg.querySelector('[data-me]').value); close(); }; bg.querySelector('[data-ok]').onclick = save; bg.querySelector('[data-me]').onkeydown = (e) => { if (e.key === 'Enter') save(); }; } });
   $('#btnBackup').onclick = APP.backup;
+  APP.dataDialog = dataDialog; $('#btnData').onclick = dataDialog;
   $('#btnHelp').onclick = APP.help;
   document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); undo(); } });
   APP.counts(); updateUndo();

@@ -23,11 +23,12 @@ const rx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /* toast / busy */
 let toastT;
 function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms || 2600); }
-function busy(msg) { const b = $('#busy'); if (msg === false) b.classList.add('hide'); else { $('#busyMsg').textContent = msg; b.classList.remove('hide'); } }
+function busy(msg) { const b = $('#busy'); if (!b) return; if (msg === false) b.classList.add('hide'); else { const m = $('#busyMsg'); if (m) m.textContent = msg; b.classList.remove('hide'); } }
 async function copyText(s) { try { await navigator.clipboard.writeText(s); toast('Copied'); } catch (e) { const ta = document.createElement('textarea'); ta.value = s; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('Copied'); } }
 
 /* storage: localStorage with memory fallback */
-const PFX = 'ss1:';
+let PFX = 'ss1:';
+function setStorageMode(embedded) { PFX = embedded ? 'ss1:' : 'ss1s:'; }
 const mem = {};
 const store = {
   get(k) { try { const v = localStorage.getItem(PFX + k); if (v != null) return JSON.parse(v); } catch (e) { /* blocked */ } return mem[k] == null ? null : JSON.parse(mem[k]); },
@@ -110,15 +111,16 @@ async function readTable(file) {
   const nm = file.name.toLowerCase();
   if (nm.endsWith('.json')) { const j = JSON.parse(await file.text()); return j; }
   if (nm.endsWith('.csv') || nm.endsWith('.txt')) {
-    const X = await ensureXLSX(); const wb = X.read(await file.text(), { type: 'string' });
+    const X = await ensureXLSX(); const wb = X.read(await file.text(), { type: 'string', raw: true });
     return wb.SheetNames.map((n) => sheetToTable(X, wb.Sheets[n], n));
   }
   const X = await ensureXLSX(); const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
   return wb.SheetNames.map((n) => sheetToTable(X, wb.Sheets[n], n));
 }
 function sheetToTable(X, ws, name) {
-  const aoa = X.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
-  const rows = aoa.map((r) => r.map((v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v == null ? '' : v).trim()))).filter((r) => r.some((v) => v !== ''));
+  const aoa = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+  const fmtD = (d) => { if (isNaN(d)) return ''; const s = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; return d.getHours() || d.getMinutes() ? `${s} ${pad(d.getHours())}:${pad(d.getMinutes())}` : s; };
+  const rows = aoa.map((r) => r.map((v) => (v instanceof Date ? fmtD(v) : typeof v === 'number' && !Number.isInteger(v) ? String(Math.round(v * 1e6) / 1e6) : String(v == null ? '' : v).trim()))).filter((r) => r.some((v) => v !== ''));
   if (!rows.length) return { name, header: [], rows: [] };
   const hi = rows.findIndex((r) => r.filter(Boolean).length >= 2);
   return { name, header: rows[hi] || [], rows: rows.slice(hi + 1) };

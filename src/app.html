@@ -247,6 +247,7 @@ mark{background:#FFF1A8;color:inherit;border-radius:2px;padding:0}
     <span class="right">
       <span class="stat" id="stat"></span>
       <button class="btn dark sm" id="btnMe" title="Your analyst name, used for new entries"><svg class="i"><use href="#i-user"/></svg><span id="meLbl">Set your name</span></button>
+      <button class="btn dark sm" id="btnData" title="Load or manage CSV and Excel files"><svg class="i"><use href="#i-upload"/></svg>Data</button>
       <button class="btn dark sm" id="btnBackup" title="Save or restore everything you changed"><svg class="i"><use href="#i-save"/></svg>Backup</button>
       <button class="btn dark sm icon" id="btnHelp" aria-label="Help"><svg class="i"><use href="#i-help"/></svg></button>
     </span>
@@ -265,6 +266,7 @@ mark{background:#FFF1A8;color:inherit;border-radius:2px;padding:0}
 <div id="busy" class="busy"><div class="spinner"></div><span id="busyMsg">Unpacking the database...</span></div>
 <input type="file" id="file" class="hide" accept=".xlsx,.xls,.csv,.json">
 <script type="application/octet-stream" id="dbz">__DATA_B64__</script>
+<!-- @@VENDOR@@ -->
 <!-- @@JS@@ -->
 </body>
 </html>
