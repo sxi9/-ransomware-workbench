@@ -92,8 +92,9 @@ function TableView(host, opts) {
   }
   function renderFilters() {
     const dc = dateCol(); const f = S.facets;
-    el.filters.innerHTML = (dc ? `<label>${esc(dc.name)} <input type="date" data-from value="${S.from}"> to <input type="date" data-to value="${S.to}"></label>` : '')
-      + f.map(({ c }) => { const m = (S.counts && S.counts.get(c.k)) || new Map(); const sel = S.facet[c.k]; let vals = Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); if (sel != null && !m.has(sel)) vals.unshift([sel, 0]); return `<select data-facet="${c.k}" aria-label="${esc(c.name)}" title="${esc(c.name)}"><option value="">${esc(c.name)}: any</option>${vals.map(([v, n]) => `<option value="${esc(v)}"${sel === v ? ' selected' : ''}>${esc(sel === v ? c.name + ': ' : '')}${esc(v.length > 40 ? v.slice(0, 40) + '…' : v)} (${fmtN(n)})</option>`).join('')}</select>`; }).join('')
+    const span = dc && S.span ? ` title="${esc(dc.name)} in this table runs from ${S.span[0]} to ${S.span[1]}"` : '';
+    el.filters.innerHTML = (dc ? `<label${span}>${esc(dc.name)} <input type="date" data-from value="${S.from}" class="${S.from ? 'active' : ''}"${span}> to <input type="date" data-to value="${S.to}" class="${S.to ? 'active' : ''}"${span}>${S.span ? `<small style="color:var(--ink-3)">(data: ${S.span[0]} to ${S.span[1]})</small>` : ''}</label>` : '')
+      + f.map(({ c }) => { const m = (S.counts && S.counts.get(c.k)) || new Map(); const sel = S.facet[c.k]; let vals = Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); if (sel != null && !m.has(sel)) vals.unshift([sel, 0]); return `<select data-facet="${c.k}" aria-label="${esc(c.name)}" title="${esc(c.name)}" class="${sel ? 'active' : ''}"><option value="">${esc(c.name)}: any</option>${vals.map(([v, n]) => `<option value="${esc(v)}"${sel === v ? ' selected' : ''}>${esc(sel === v ? c.name + ': ' : '')}${esc(v.length > 40 ? v.slice(0, 40) + '…' : v)} (${fmtN(n)})</option>`).join('')}</select>`; }).join('')
       + `<button class="btn sm${Object.keys(S.facet).length || S.from || S.to || S.q ? '' : ' hide'}" data-clear>Clear all</button>`;
   }
   el.filters.addEventListener('change', (e) => {
@@ -104,6 +105,7 @@ function TableView(host, opts) {
   });
   const clearAll = () => { S.facet = {}; S.from = S.to = ''; S.q = ''; el.q.value = ''; S.preset = null; run(); };
   el.sum.addEventListener('click', (e) => { if (e.target.closest('[data-clear2]')) clearAll(); });
+  el.none.addEventListener('click', (e) => { if (e.target.closest('[data-clear3]')) clearAll(); });
   el.filters.addEventListener('click', (e) => { if (e.target.closest('[data-clear]')) { S.facet = {}; S.from = S.to = ''; S.q = ''; el.q.value = ''; S.preset = null; run(); } });
   function renderPresets() {
     const p = opts.presets || [];
@@ -120,7 +122,7 @@ function TableView(host, opts) {
   /* ---- compute ---- */
   function run(keepScroll) {
     const t = T();
-    if (S.ver !== t.ver || !S.facets) { S.facets = computeFacets(); S.ver = t.ver; }
+    if (S.ver !== t.ver || !S.facets) { S.facets = computeFacets(); S.ver = t.ver; const dcc = dateCol(); S.span = null; if (dcc) { let lo = '', hi = ''; for (const r of t.rows) { const d = dateOf(r[dcc.k]); if (!d) continue; if (!lo || d < lo) lo = d; if (d > hi) hi = d; } if (lo) S.span = [lo, hi]; } }
     S.toks = parseQuery(S.q, t.cols); el.qx.classList.toggle('hide', !S.q);
     const fk = Object.keys(S.facet); const dc = dateCol(); const fromMs = S.from ? msOf(S.from) : null, toMs = S.to ? msOf(S.to) + DAY : null;
     const preset = S.preset != null && opts.presets ? opts.presets[S.preset] : null;
@@ -149,7 +151,7 @@ function TableView(host, opts) {
     el.sum.innerHTML = `<b>${fmtN(out.length)}</b> of ${fmtN(t.rows.length)} rows${S.sel.size ? ` · ${fmtN(S.sel.size)} selected` : ''}${active.length ? ` <span style="color:var(--ink-3)">· filters: ${esc(active.join(' · '))}</span> <button class="btn sm" data-clear2 style="height:22px;padding:0 8px;font-size:11.5px;margin-left:4px">Clear all</button>` : ''}`;
     el.meta.textContent = opts.meta ? opts.meta(t) : '';
     el.none.classList.toggle('hide', out.length > 0);
-    el.none.innerHTML = out.length ? '' : `<div>Nothing matches.</div><div style="font-size:12.5px">Try fewer words, or clear the filters.</div>`;
+    el.none.innerHTML = out.length ? '' : (active.length ? `<div style="font-size:15px;font-weight:600;color:var(--ink)">No rows match these filters</div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px;text-align:left">${active.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>${dateOn && S.span ? `<div style="font-size:12.5px">${esc(dc.name)} in this table runs from ${S.span[0]} to ${S.span[1]}.</div>` : ''}<button class="btn accent sm" data-clear3 style="margin-top:6px">Clear all filters</button>` : `<div>This table is empty.</div>`);
     if (!keepScroll) el.body.scrollTop = 0;
     el.spacer.style.height = Math.max(1, out.length * RH) + 'px';
     el.spacer.style.width = (36 + visCols().reduce((a, c) => a + cw(c), 0)) + 'px';

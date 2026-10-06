@@ -38,7 +38,9 @@ onChange((tid, ev) => {
     rebuildT = setTimeout(() => { if (tid === 'groups' && ev.type === 'edit') { for (const v of DB.tables.victims.rows) { const g = groupFor(v.group); if (g) { v.onion = g.onion; v.collector = g.collector; v.sitestat = g.site; v._s = null; } } } recount(); buildMixed(); APP.counts(); }, 80);
   } else APP.counts();
 });
+APP.stat = function () { $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built __BUILT__${APP.filesCount ? ` · +${APP.filesCount} loaded file${APP.filesCount === 1 ? '' : 's'}` : ''}` : `Data from ${APP.filesCount || 0} file${APP.filesCount === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`; };
 APP.counts = function () {
+  if (DB.tables.mixed) APP.stat();
   const n = (id, v) => { const e = $('#n-' + id); if (e) e.textContent = fmtN(v); };
   n('mixed', DB.tables.mixed.rows.length); n('victims', DB.tables.victims.rows.length); n('needles', DB.tables.needles.rows.length); n('groups', DB.tables.groups.rows.length); n('sheets', DB.sheets.length); n('journal', DB.tables.journal.rows.length);
   const day = APP.day || DB.asOf; n('today', DB.tables.victims.rows.filter((r) => dateOf(r.created) === day).length);
@@ -287,7 +289,7 @@ async function boot() {
   buildTables(raw);
   if (raw.journal && raw.journal.length) { const res = addRows('journal', raw.journal.map((o) => Object.assign({ created: nowISO() }, o)), { silent: true }); if (res.added.length) console.info('journal rows imported from files:', res.added.length); }
   if (files.length && raw.stats) setTimeout(() => toast(`Loaded ${files.length} file${files.length === 1 ? '' : 's'}: ` + mergeSummary(raw.stats), 7000), 400);
-  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built __BUILT__` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`;
+  APP.filesCount = files.length; APP.stat();
   APP.setMe(APP.me);
   $('#meLbl').textContent = APP.me || 'Set your name';
   APP.views.victims = TableView($('#host-victims'), { table: 'victims', defaultSort: { k: 'created', d: -1 }, dateKey: 'created', facets: ['group', 'sector', 'cc'], related: relVictim, placeholder: 'Search victims: company, group, domain, country, sector, onion…',

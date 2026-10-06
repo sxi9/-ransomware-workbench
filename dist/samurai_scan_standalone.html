@@ -68,6 +68,7 @@ svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke
 .filters{display:flex;gap:6px;align-items:center;padding:8px 14px 0;flex-wrap:wrap}
 .filters select,.filters input{height:30px;border:1px solid var(--grid);border-radius:5px;background:var(--paper);padding:0 8px;font-size:12.5px;max-width:230px}
 .filters input[type=date]{width:140px}
+.filters select.active,.filters input.active{border-color:var(--accent);background:var(--sel);font-weight:500}
 .filters label{font-size:12px;color:var(--ink-3);display:inline-flex;align-items:center;gap:4px}
 .filters .lbl{font-size:12px;color:var(--ink-3)}
 .hint{padding:4px 14px 0;font-size:12px;color:var(--ink-3)}
@@ -688,10 +689,11 @@ function buildMixed() {
   const victims = DB.tables.victims, needles = DB.tables.needles, groups = DB.tables.groups;
   const byV = new Map();
   const vIndex = new Map(); // norm(group)|norm(victim) -> victim row (for needles added later)
-  for (const r of victims.rows) vIndex.set(norm(r.group) + '|' + norm(r.victim), r);
+  const vIndexDom = new Map();
+  for (const r of victims.rows) { const gk = norm(r.group); vIndex.set(gk + '|' + norm(r.victim), r); if (r.domain) { const lab = norm(String(r.domain).split('.')[0]); if (lab.length >= 4 && !vIndexDom.has(gk + '|' + lab)) vIndexDom.set(gk + '|' + lab, r); } }
   for (const n of needles.rows) {
     let v = n._vi >= 0 ? (DB.vByPos[n._vi] && victims.byId.has(DB.vByPos[n._vi]._id) ? DB.vByPos[n._vi] : null) : null;
-    if (!v && n._src === 'added' && n.victim) { const g = n._g || groupFor(n.actor); if (g) v = vIndex.get(norm(g.name) + '|' + norm(n.victim)) || null; if (v) { n.match = 'Exact'; } }
+    if (!v && n.victim) { const g = n._g || groupFor(n.actor) || groupFor(victimPart(n.name).g); if (g) { v = vIndex.get(norm(g.name) + '|' + norm(n.victim)) || null; if (!v) { const dom = vIndexDom.get(norm(g.name) + '|' + norm(n.victim)); if (dom) v = dom; } } if (v) { n.match = n.match === 'None' ? 'Exact' : n.match; } }
     n._v = v;
     if (v) { const cur = byV.get(v._id); if (!cur || (n.pdate || '') > (cur.pdate || '')) byV.set(v._id, n); }
   }
@@ -1069,8 +1071,9 @@ function TableView(host, opts) {
   }
   function renderFilters() {
     const dc = dateCol(); const f = S.facets;
-    el.filters.innerHTML = (dc ? `<label>${esc(dc.name)} <input type="date" data-from value="${S.from}"> to <input type="date" data-to value="${S.to}"></label>` : '')
-      + f.map(({ c }) => { const m = (S.counts && S.counts.get(c.k)) || new Map(); const sel = S.facet[c.k]; let vals = Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); if (sel != null && !m.has(sel)) vals.unshift([sel, 0]); return `<select data-facet="${c.k}" aria-label="${esc(c.name)}" title="${esc(c.name)}"><option value="">${esc(c.name)}: any</option>${vals.map(([v, n]) => `<option value="${esc(v)}"${sel === v ? ' selected' : ''}>${esc(sel === v ? c.name + ': ' : '')}${esc(v.length > 40 ? v.slice(0, 40) + '…' : v)} (${fmtN(n)})</option>`).join('')}</select>`; }).join('')
+    const span = dc && S.span ? ` title="${esc(dc.name)} in this table runs from ${S.span[0]} to ${S.span[1]}"` : '';
+    el.filters.innerHTML = (dc ? `<label${span}>${esc(dc.name)} <input type="date" data-from value="${S.from}" class="${S.from ? 'active' : ''}"${span}> to <input type="date" data-to value="${S.to}" class="${S.to ? 'active' : ''}"${span}>${S.span ? `<small style="color:var(--ink-3)">(data: ${S.span[0]} to ${S.span[1]})</small>` : ''}</label>` : '')
+      + f.map(({ c }) => { const m = (S.counts && S.counts.get(c.k)) || new Map(); const sel = S.facet[c.k]; let vals = Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); if (sel != null && !m.has(sel)) vals.unshift([sel, 0]); return `<select data-facet="${c.k}" aria-label="${esc(c.name)}" title="${esc(c.name)}" class="${sel ? 'active' : ''}"><option value="">${esc(c.name)}: any</option>${vals.map(([v, n]) => `<option value="${esc(v)}"${sel === v ? ' selected' : ''}>${esc(sel === v ? c.name + ': ' : '')}${esc(v.length > 40 ? v.slice(0, 40) + '…' : v)} (${fmtN(n)})</option>`).join('')}</select>`; }).join('')
       + `<button class="btn sm${Object.keys(S.facet).length || S.from || S.to || S.q ? '' : ' hide'}" data-clear>Clear all</button>`;
   }
   el.filters.addEventListener('change', (e) => {
@@ -1081,6 +1084,7 @@ function TableView(host, opts) {
   });
   const clearAll = () => { S.facet = {}; S.from = S.to = ''; S.q = ''; el.q.value = ''; S.preset = null; run(); };
   el.sum.addEventListener('click', (e) => { if (e.target.closest('[data-clear2]')) clearAll(); });
+  el.none.addEventListener('click', (e) => { if (e.target.closest('[data-clear3]')) clearAll(); });
   el.filters.addEventListener('click', (e) => { if (e.target.closest('[data-clear]')) { S.facet = {}; S.from = S.to = ''; S.q = ''; el.q.value = ''; S.preset = null; run(); } });
   function renderPresets() {
     const p = opts.presets || [];
@@ -1097,7 +1101,7 @@ function TableView(host, opts) {
   /* ---- compute ---- */
   function run(keepScroll) {
     const t = T();
-    if (S.ver !== t.ver || !S.facets) { S.facets = computeFacets(); S.ver = t.ver; }
+    if (S.ver !== t.ver || !S.facets) { S.facets = computeFacets(); S.ver = t.ver; const dcc = dateCol(); S.span = null; if (dcc) { let lo = '', hi = ''; for (const r of t.rows) { const d = dateOf(r[dcc.k]); if (!d) continue; if (!lo || d < lo) lo = d; if (d > hi) hi = d; } if (lo) S.span = [lo, hi]; } }
     S.toks = parseQuery(S.q, t.cols); el.qx.classList.toggle('hide', !S.q);
     const fk = Object.keys(S.facet); const dc = dateCol(); const fromMs = S.from ? msOf(S.from) : null, toMs = S.to ? msOf(S.to) + DAY : null;
     const preset = S.preset != null && opts.presets ? opts.presets[S.preset] : null;
@@ -1126,7 +1130,7 @@ function TableView(host, opts) {
     el.sum.innerHTML = `<b>${fmtN(out.length)}</b> of ${fmtN(t.rows.length)} rows${S.sel.size ? ` · ${fmtN(S.sel.size)} selected` : ''}${active.length ? ` <span style="color:var(--ink-3)">· filters: ${esc(active.join(' · '))}</span> <button class="btn sm" data-clear2 style="height:22px;padding:0 8px;font-size:11.5px;margin-left:4px">Clear all</button>` : ''}`;
     el.meta.textContent = opts.meta ? opts.meta(t) : '';
     el.none.classList.toggle('hide', out.length > 0);
-    el.none.innerHTML = out.length ? '' : `<div>Nothing matches.</div><div style="font-size:12.5px">Try fewer words, or clear the filters.</div>`;
+    el.none.innerHTML = out.length ? '' : (active.length ? `<div style="font-size:15px;font-weight:600;color:var(--ink)">No rows match these filters</div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px;text-align:left">${active.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>${dateOn && S.span ? `<div style="font-size:12.5px">${esc(dc.name)} in this table runs from ${S.span[0]} to ${S.span[1]}.</div>` : ''}<button class="btn accent sm" data-clear3 style="margin-top:6px">Clear all filters</button>` : `<div>This table is empty.</div>`);
     if (!keepScroll) el.body.scrollTop = 0;
     el.spacer.style.height = Math.max(1, out.length * RH) + 'px';
     el.spacer.style.width = (36 + visCols().reduce((a, c) => a + cw(c), 0)) + 'px';
@@ -1357,7 +1361,9 @@ onChange((tid, ev) => {
     rebuildT = setTimeout(() => { if (tid === 'groups' && ev.type === 'edit') { for (const v of DB.tables.victims.rows) { const g = groupFor(v.group); if (g) { v.onion = g.onion; v.collector = g.collector; v.sitestat = g.site; v._s = null; } } } recount(); buildMixed(); APP.counts(); }, 80);
   } else APP.counts();
 });
+APP.stat = function () { $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-06 17:25 UTC${APP.filesCount ? ` · +${APP.filesCount} loaded file${APP.filesCount === 1 ? '' : 's'}` : ''}` : `Data from ${APP.filesCount || 0} file${APP.filesCount === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`; };
 APP.counts = function () {
+  if (DB.tables.mixed) APP.stat();
   const n = (id, v) => { const e = $('#n-' + id); if (e) e.textContent = fmtN(v); };
   n('mixed', DB.tables.mixed.rows.length); n('victims', DB.tables.victims.rows.length); n('needles', DB.tables.needles.rows.length); n('groups', DB.tables.groups.rows.length); n('sheets', DB.sheets.length); n('journal', DB.tables.journal.rows.length);
   const day = APP.day || DB.asOf; n('today', DB.tables.victims.rows.filter((r) => dateOf(r.created) === day).length);
@@ -1606,7 +1612,7 @@ async function boot() {
   buildTables(raw);
   if (raw.journal && raw.journal.length) { const res = addRows('journal', raw.journal.map((o) => Object.assign({ created: nowISO() }, o)), { silent: true }); if (res.added.length) console.info('journal rows imported from files:', res.added.length); }
   if (files.length && raw.stats) setTimeout(() => toast(`Loaded ${files.length} file${files.length === 1 ? '' : 's'}: ` + mergeSummary(raw.stats), 7000), 400);
-  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-06 17:21 UTC` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`;
+  APP.filesCount = files.length; APP.stat();
   APP.setMe(APP.me);
   $('#meLbl').textContent = APP.me || 'Set your name';
   APP.views.victims = TableView($('#host-victims'), { table: 'victims', defaultSort: { k: 'created', d: -1 }, dateKey: 'created', facets: ['group', 'sector', 'cc'], related: relVictim, placeholder: 'Search victims: company, group, domain, country, sector, onion…',

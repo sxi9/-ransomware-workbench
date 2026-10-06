@@ -218,10 +218,11 @@ function buildMixed() {
   const victims = DB.tables.victims, needles = DB.tables.needles, groups = DB.tables.groups;
   const byV = new Map();
   const vIndex = new Map(); // norm(group)|norm(victim) -> victim row (for needles added later)
-  for (const r of victims.rows) vIndex.set(norm(r.group) + '|' + norm(r.victim), r);
+  const vIndexDom = new Map();
+  for (const r of victims.rows) { const gk = norm(r.group); vIndex.set(gk + '|' + norm(r.victim), r); if (r.domain) { const lab = norm(String(r.domain).split('.')[0]); if (lab.length >= 4 && !vIndexDom.has(gk + '|' + lab)) vIndexDom.set(gk + '|' + lab, r); } }
   for (const n of needles.rows) {
     let v = n._vi >= 0 ? (DB.vByPos[n._vi] && victims.byId.has(DB.vByPos[n._vi]._id) ? DB.vByPos[n._vi] : null) : null;
-    if (!v && n._src === 'added' && n.victim) { const g = n._g || groupFor(n.actor); if (g) v = vIndex.get(norm(g.name) + '|' + norm(n.victim)) || null; if (v) { n.match = 'Exact'; } }
+    if (!v && n.victim) { const g = n._g || groupFor(n.actor) || groupFor(victimPart(n.name).g); if (g) { v = vIndex.get(norm(g.name) + '|' + norm(n.victim)) || null; if (!v) { const dom = vIndexDom.get(norm(g.name) + '|' + norm(n.victim)); if (dom) v = dom; } } if (v) { n.match = n.match === 'None' ? 'Exact' : n.match; } }
     n._v = v;
     if (v) { const cur = byV.get(v._id); if (!cur || (n.pdate || '') > (cur.pdate || '')) byV.set(v._id, n); }
   }
