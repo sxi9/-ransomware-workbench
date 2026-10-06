@@ -287,7 +287,7 @@ async function boot() {
   buildTables(raw);
   if (raw.journal && raw.journal.length) { const res = addRows('journal', raw.journal.map((o) => Object.assign({ created: nowISO() }, o)), { silent: true }); if (res.added.length) console.info('journal rows imported from files:', res.added.length); }
   if (files.length && raw.stats) setTimeout(() => toast(`Loaded ${files.length} file${files.length === 1 ? '' : 's'}: ` + mergeSummary(raw.stats), 7000), 400);
-  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built __BUILT__` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(raw.victims.length)} victims · ${fmtN(raw.needles.length)} Needles`;
+  $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built __BUILT__` : `Data from ${files.length} file${files.length === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`;
   APP.setMe(APP.me);
   $('#meLbl').textContent = APP.me || 'Set your name';
   APP.views.victims = TableView($('#host-victims'), { table: 'victims', defaultSort: { k: 'created', d: -1 }, dateKey: 'created', facets: ['group', 'sector', 'cc'], related: relVictim, placeholder: 'Search victims: company, group, domain, country, sector, onion…',

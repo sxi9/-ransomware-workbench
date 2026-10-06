@@ -93,7 +93,7 @@ function TableView(host, opts) {
   function renderFilters() {
     const dc = dateCol(); const f = S.facets;
     el.filters.innerHTML = (dc ? `<label>${esc(dc.name)} <input type="date" data-from value="${S.from}"> to <input type="date" data-to value="${S.to}"></label>` : '')
-      + f.map(({ c, vals }) => `<select data-facet="${c.k}" aria-label="${esc(c.name)}"><option value="">${esc(c.name)}: any</option>${vals.map(([v, n]) => `<option value="${esc(v)}"${S.facet[c.k] === v ? ' selected' : ''}>${esc(v.length > 40 ? v.slice(0, 40) + '…' : v)} (${fmtN(n)})</option>`).join('')}</select>`).join('')
+      + f.map(({ c }) => { const m = (S.counts && S.counts.get(c.k)) || new Map(); const sel = S.facet[c.k]; let vals = Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); if (sel != null && !m.has(sel)) vals.unshift([sel, 0]); return `<select data-facet="${c.k}" aria-label="${esc(c.name)}" title="${esc(c.name)}"><option value="">${esc(c.name)}: any</option>${vals.map(([v, n]) => `<option value="${esc(v)}"${sel === v ? ' selected' : ''}>${esc(sel === v ? c.name + ': ' : '')}${esc(v.length > 40 ? v.slice(0, 40) + '…' : v)} (${fmtN(n)})</option>`).join('')}</select>`; }).join('')
       + `<button class="btn sm${Object.keys(S.facet).length || S.from || S.to || S.q ? '' : ' hide'}" data-clear>Clear all</button>`;
   }
   el.filters.addEventListener('change', (e) => {
@@ -102,6 +102,8 @@ function TableView(host, opts) {
     else if (t.matches('[data-from]')) S.from = t.value; else if (t.matches('[data-to]')) S.to = t.value;
     run();
   });
+  const clearAll = () => { S.facet = {}; S.from = S.to = ''; S.q = ''; el.q.value = ''; S.preset = null; run(); };
+  el.sum.addEventListener('click', (e) => { if (e.target.closest('[data-clear2]')) clearAll(); });
   el.filters.addEventListener('click', (e) => { if (e.target.closest('[data-clear]')) { S.facet = {}; S.from = S.to = ''; S.q = ''; el.q.value = ''; S.preset = null; run(); } });
   function renderPresets() {
     const p = opts.presets || [];
@@ -118,27 +120,33 @@ function TableView(host, opts) {
   /* ---- compute ---- */
   function run(keepScroll) {
     const t = T();
-    if (S.ver !== t.ver || !S.facets) { S.facets = computeFacets(); S.ver = t.ver; renderFilters(); }
+    if (S.ver !== t.ver || !S.facets) { S.facets = computeFacets(); S.ver = t.ver; }
     S.toks = parseQuery(S.q, t.cols); el.qx.classList.toggle('hide', !S.q);
     const fk = Object.keys(S.facet); const dc = dateCol(); const fromMs = S.from ? msOf(S.from) : null, toMs = S.to ? msOf(S.to) + DAY : null;
     const preset = S.preset != null && opts.presets ? opts.presets[S.preset] : null;
-    const out = [];
+    const out = []; const facetCols = S.facets.map((x) => x.c); const counts = new Map(facetCols.map((c) => [c.k, new Map()]));
+    const dateOn = dc && (fromMs != null || toMs != null);
     for (const r of t.rows) {
       if (preset && !preset.filter(r)) continue;
-      let ok = true;
-      for (const k of fk) if (String(r[k] == null ? '' : r[k]) !== S.facet[k]) { ok = false; break; }
-      if (!ok) continue;
-      if (dc && (fromMs != null || toMs != null)) { const ms = msOf(r[dc.k]); if (isNaN(ms) || (fromMs != null && ms < fromMs) || (toMs != null && ms >= toMs)) continue; }
+      if (dateOn) { const ms = msOf(r[dc.k]); if (isNaN(ms) || (fromMs != null && ms < fromMs) || (toMs != null && ms >= toMs)) continue; }
       if (S.toks.length && !matchRow(r, S.toks, t.cols)) continue;
-      out.push(r);
+      let nf = 0, failK = null;
+      for (const k of fk) if (String(r[k] == null ? '' : r[k]) !== S.facet[k]) { nf++; failK = k; if (nf > 1) break; }
+      if (nf === 0) out.push(r);
+      if (nf <= 1) for (const c of facetCols) { if (nf === 1 && failK !== c.k) continue; const v = r[c.k]; if (v == null || v === '') continue; const m = counts.get(c.k), s = String(v); m.set(s, (m.get(s) || 0) + 1); }
     }
+    S.counts = counts;
     if (S.sort) {
       const { k, d } = S.sort; const c = t.cols.find((x) => x.k === k); const num = c && c.type === 'num';
       out.sort((a, b) => { let x = a[k], y = b[k]; if (num) { x = +x || 0; y = +y || 0; return (x - y) * d; } x = x == null ? '' : String(x); y = y == null ? '' : String(y); if (x === '' && y !== '') return 1; if (y === '' && x !== '') return -1; return x.localeCompare(y, undefined, { sensitivity: 'base', numeric: true }) * d; });
     }
     S.rows = out; S.hl = highlighter(S.toks);
     renderHead(); renderPresets(); renderFilters();
-    el.sum.innerHTML = `<b>${fmtN(out.length)}</b> of ${fmtN(t.rows.length)} rows${S.sel.size ? ` · ${fmtN(S.sel.size)} selected` : ''}`;
+    const active = [];
+    if (preset) active.push(preset.label); if (S.q) active.push(`search "${S.q}"`);
+    fk.forEach((k) => { const c = t.cols.find((x) => x.k === k); active.push(`${c ? c.name : k} = ${S.facet[k]}`); });
+    if (dateOn) active.push(`${dc.name} ${S.from || '…'} to ${S.to || '…'}`);
+    el.sum.innerHTML = `<b>${fmtN(out.length)}</b> of ${fmtN(t.rows.length)} rows${S.sel.size ? ` · ${fmtN(S.sel.size)} selected` : ''}${active.length ? ` <span style="color:var(--ink-3)">· filters: ${esc(active.join(' · '))}</span> <button class="btn sm" data-clear2 style="height:22px;padding:0 8px;font-size:11.5px;margin-left:4px">Clear all</button>` : ''}`;
     el.meta.textContent = opts.meta ? opts.meta(t) : '';
     el.none.classList.toggle('hide', out.length > 0);
     el.none.innerHTML = out.length ? '' : `<div>Nothing matches.</div><div style="font-size:12.5px">Try fewer words, or clear the filters.</div>`;
