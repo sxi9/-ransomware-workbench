@@ -1508,7 +1508,7 @@ function rlVictimsToSheet(list, name) {
 }
 function rlGroupsToSheet(list) {
   const parse = (v) => { if (Array.isArray(v)) return v; try { return JSON.parse(String(v || '[]').replace(/'/g, '"').replace(/\b(True|False|None)\b/g, (m) => ({ True: 'true', False: 'false', None: 'null' }[m]))); } catch (e) { return []; } };
-  const rows = list.filter(isRlGroup).map((o) => { const locs = parse(o.locations); const sites = locs.map((l) => l.slug || (l.fqdn ? 'http://' + l.fqdn + '/' : '')).filter(Boolean); const live = locs.some((l) => l.available); return [o.name, sites.join('\n'), locs.length ? (live ? 'Yes' : 'No') : '', dateClean(o.added_date || ''), 'ransomware.live', o.altname || '']; });
+  const rows = list.filter(isRlGroup).map((o) => { const locs = parse(o.locations); const sites = locs.map((l) => l.slug || (l.fqdn ? 'http://' + l.fqdn + '/' : '')).filter(Boolean); const live = locs.some((l) => l.available); const nm = String(o.name || '').trim(); return [/[A-Z]/.test(nm) ? nm : nm[0].toUpperCase() + nm.slice(1), sites.join('\n'), locs.length ? (live ? 'Yes' : 'No') : '', dateClean(o.added_date || ''), 'ransomware.live', o.altname || '']; });
   return { name: 'ransomware.live groups', header: ['Name', 'Leak site', 'Online?', 'Date added', 'Source', 'Also known as'], rows };
 }
 /* any JSON file -> sheets: ransomware.live victims or groups, a plain array of objects, or this page's own sheet export */
@@ -1649,7 +1649,7 @@ onChange((tid, ev) => {
     rebuildT = setTimeout(() => { if (tid === 'groups' && ev.type === 'edit') { for (const v of DB.tables.victims.rows) { const g = groupFor(v.group); if (g) { v.onion = g.onion; v.collector = g.collector; v.sitestat = g.site; v._s = null; } } } recount(); buildMixed(); APP.counts(); }, 80);
   } else APP.counts();
 });
-APP.stat = function () { $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-08 03:32 UTC${APP.filesCount ? ` · +${APP.filesCount} loaded file${APP.filesCount === 1 ? '' : 's'}` : ''}` : `Data from ${APP.filesCount || 0} file${APP.filesCount === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`; };
+APP.stat = function () { $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-08 03:33 UTC${APP.filesCount ? ` · +${APP.filesCount} loaded file${APP.filesCount === 1 ? '' : 's'}` : ''}` : `Data from ${APP.filesCount || 0} file${APP.filesCount === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`; };
 APP.counts = function () {
   if (DB.tables.mixed) APP.stat();
   const n = (id, v) => { const e = $('#n-' + id); if (e) e.textContent = fmtN(v); };

@@ -13,7 +13,7 @@ function rlVictimsToSheet(list, name) {
 }
 function rlGroupsToSheet(list) {
   const parse = (v) => { if (Array.isArray(v)) return v; try { return JSON.parse(String(v || '[]').replace(/'/g, '"').replace(/\b(True|False|None)\b/g, (m) => ({ True: 'true', False: 'false', None: 'null' }[m]))); } catch (e) { return []; } };
-  const rows = list.filter(isRlGroup).map((o) => { const locs = parse(o.locations); const sites = locs.map((l) => l.slug || (l.fqdn ? 'http://' + l.fqdn + '/' : '')).filter(Boolean); const live = locs.some((l) => l.available); return [o.name, sites.join('\n'), locs.length ? (live ? 'Yes' : 'No') : '', dateClean(o.added_date || ''), 'ransomware.live', o.altname || '']; });
+  const rows = list.filter(isRlGroup).map((o) => { const locs = parse(o.locations); const sites = locs.map((l) => l.slug || (l.fqdn ? 'http://' + l.fqdn + '/' : '')).filter(Boolean); const live = locs.some((l) => l.available); const nm = String(o.name || '').trim(); return [/[A-Z]/.test(nm) ? nm : nm[0].toUpperCase() + nm.slice(1), sites.join('\n'), locs.length ? (live ? 'Yes' : 'No') : '', dateClean(o.added_date || ''), 'ransomware.live', o.altname || '']; });
   return { name: 'ransomware.live groups', header: ['Name', 'Leak site', 'Online?', 'Date added', 'Source', 'Also known as'], rows };
 }
 /* any JSON file -> sheets: ransomware.live victims or groups, a plain array of objects, or this page's own sheet export */
