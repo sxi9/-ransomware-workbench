@@ -238,7 +238,8 @@ mark{background:#FFF1A8;color:inherit;border-radius:2px;padding:0}
 <div class="shell">
   <nav class="tabs" role="tablist" aria-label="Views">
     <span class="logo"><b>Samurai</b><span>Scan</span></span>
-    <button data-tab="today" class="on" role="tab">Today <span class="n" id="n-today"></span></button>
+    <button data-tab="search" class="on" role="tab">Search</button>
+    <button data-tab="today" role="tab">Today <span class="n" id="n-today"></span></button>
     <button data-tab="mixed" role="tab">Mixed database <span class="n" id="n-mixed"></span></button>
     <button data-tab="victims" role="tab">Victims <span class="n" id="n-victims"></span></button>
     <button data-tab="needles" role="tab">Needles <span class="n" id="n-needles"></span></button>
@@ -254,7 +255,8 @@ mark{background:#FFF1A8;color:inherit;border-radius:2px;padding:0}
     </span>
   </nav>
   <div class="hosts">
-    <div id="host-today" class="host active"></div>
+    <div id="host-search" class="host active"></div>
+    <div id="host-today" class="host"></div>
     <div id="host-mixed" class="host"></div>
     <div id="host-victims" class="host"></div>
     <div id="host-needles" class="host"></div>

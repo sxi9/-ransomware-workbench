@@ -165,7 +165,9 @@ function mountSheets(host) {
   let cur = 0;
   const sel = `<select data-sheet style="height:30px;border:1px solid var(--grid);border-radius:5px;background:#fff;padding:0 6px;max-width:340px">${DB.sheets.map((t, i) => `<option value="${i}">${esc(t.wb)} › ${esc(t.title)} (${fmtN(t.rows.length)})</option>`).join('')}</select>`;
   const tv = TableView(host, { id: 'sheets', table: () => DB.sheets[cur], title: 'Sheets', extraHtml: sel, meta: (t) => `${t.wb} · ${fmtN(t.rows.length)} rows · ${t.cols.length} columns`, rowTitle: (r) => r.c0 || 'Row ' + r._row, noLog: false });
-  host.querySelector('[data-sheet]').onchange = (e) => { cur = +e.target.value; tv.state.ver = -1; tv.state.active = null; tv.state.sel.clear(); tv.state.facet = {}; tv.state.hidden = new Set(); tv.run(); };
+  const pick = (i) => { cur = i; host.querySelector('[data-sheet]').value = String(i); tv.state.ver = -1; tv.state.active = null; tv.state.sel.clear(); tv.state.facet = {}; tv.state.hidden = new Set(); tv.state.q = ''; host.querySelector('[data-q]').value = ''; tv.run(); };
+  host.querySelector('[data-sheet]').onchange = (e) => pick(+e.target.value);
+  tv.openSheet = (i, id) => { if (cur !== i) pick(i); if (id) tv.focus(id); };
   return tv;
 }
 
@@ -262,6 +264,7 @@ APP.backup = function () {
 APP.help = function () {
   modal({ title: 'How this workbench works', wide: true, body: `
   <h4>Tabs</h4><ul>
+  <li><b>Search</b>: one box for everything. Type a name, a domain, a country code or an onion address, or paste a whole list (one per line or comma separated) to check every item against every table at once. Items not found can be added as new victims right there.</li>
   <li><b>Today</b>: what was discovered, published and logged on a given day. Click any number to open the matching rows.</li>
   <li><b>Mixed database</b>: one row per ledger victim, joined with its Needle (analyst, republish status, dates, Wagtail and live links) and its group's onion site, collector and status. Needles with no ledger victim appear as "Needle only". Edits write through to Victims, Needles or Groups.</li>
   <li><b>Victims</b>: the full ransomware ledger (${fmtN(DB.tables.victims.rows.length)} rows) with the group's onion site and the leak-site claim URL in every row.</li>
@@ -304,6 +307,7 @@ async function boot() {
   APP.views.sheets = mountSheets($('#host-sheets'));
   APP.views.journal = mountJournal($('#host-journal'));
   APP.views.today = mountToday($('#host-today'));
+  APP.views.search = mountSearch($('#host-search'));
   $$('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => APP.go(b.dataset.tab)));
   $('#btnMe').onclick = () => modal({ title: 'Your name', body: `<label class="form" style="display:block">Analyst name<input data-me value="${esc(APP.me)}" list="dl-analysts" style="height:32px;border:1px solid var(--grid);border-radius:5px;padding:0 8px;width:100%;margin-top:4px"></label><p style="font-size:12.5px;color:var(--ink-3)">Used as the default analyst on log entries and Needles you add.</p>`, foot: `<button class="btn" data-x>Cancel</button><button class="btn accent" data-ok>Save</button>`, wire: (bg, close) => { const save = () => { APP.setMe(bg.querySelector('[data-me]').value); close(); }; bg.querySelector('[data-ok]').onclick = save; bg.querySelector('[data-me]').onkeydown = (e) => { if (e.key === 'Enter') save(); }; } });
   $('#btnBackup').onclick = APP.backup;
