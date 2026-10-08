@@ -249,6 +249,7 @@ mark{background:#FFF1A8;color:inherit;border-radius:2px;padding:0}
     <span class="right">
       <span class="stat" id="stat"></span>
       <button class="btn dark sm" id="btnMe" title="Your analyst name, used for new entries"><svg class="i"><use href="#i-user"/></svg><span id="meLbl">Set your name</span></button>
+      <button class="btn primary sm" id="btnSync" title="Pull victims newer than the last date in this page from ransomware.live"><svg class="i"><use href="#i-refresh"/></svg>Sync</button>
       <button class="btn dark sm" id="btnData" title="Load or manage CSV and Excel files"><svg class="i"><use href="#i-upload"/></svg>Data</button>
       <button class="btn dark sm" id="btnBackup" title="Save or restore everything you changed"><svg class="i"><use href="#i-save"/></svg>Backup</button>
       <button class="btn dark sm icon" id="btnHelp" aria-label="Help"><svg class="i"><use href="#i-help"/></svg></button>
@@ -407,7 +408,7 @@ function pickFile(accept) { return new Promise((ok) => { const f = $('#file'); f
 async function readTable(file) {
   /* -> [{name, header, rows}] */
   const nm = file.name.toLowerCase();
-  if (nm.endsWith('.json')) { const j = JSON.parse(await file.text()); return j; }
+  if (nm.endsWith('.json')) { const j = JSON.parse(await file.text()); return jsonToSheets(j, file.name); }
   if (nm.endsWith('.csv') || nm.endsWith('.txt')) {
     const X = await ensureXLSX(); const wb = X.read(await file.text(), { type: 'string', raw: true });
     return wb.SheetNames.map((n) => sheetToTable(X, wb.Sheets[n], n));
@@ -820,9 +821,9 @@ function mergeAll(base, files) {
 
   for (const f of files) {
     const fs = { name: f.name, kinds: [] };
-    for (const s of f.sheets) {
-      if (!s.header || !s.rows || !s.rows.length) continue;
-      const kind = classifySheet(s.header); fs.kinds.push(`${s.name}: ${kind}`);
+    const ordered = f.sheets.map((s) => ({ s, kind: s.header && s.rows && s.rows.length ? classifySheet(s.header) : 'empty' })).sort((a, b) => ({ groups: 0, assign: 1 }[a.kind] ?? 2) - ({ groups: 0, assign: 1 }[b.kind] ?? 2));
+    for (const { s, kind } of ordered) {
+      if (kind === 'empty') continue; fs.kinds.push(`${s.name}: ${kind}`);
       const header = s.header.map((h) => String(h || '').trim());
       if (kind === 'mixed') { stats.skipped.push(`${f.name} › ${s.name} (mixed view, derived)`); continue; }
       if (kind === 'victims') {
@@ -1491,6 +1492,122 @@ function mountSearch(host) {
   return view;
 }
 
+/* ---- 27_sync.js ---- */
+/* ===== sync: pull new victims from ransomware.live, or load its JSON files ===== */
+const RL_API = 'https://api.ransomware.live/v2';
+const RL_HEADER = ['Group', 'Victim', 'Entry type', 'Domain', 'Country', 'Sector', 'Attack date', 'Discovered (tracker)', 'Data size claimed', 'Leak-site claim URL (source)', 'ransomware.live URL (source)', 'Press / breach-notice links (source)', 'Basis (from listing text)'];
+const isRlVictim = (o) => o && typeof o === 'object' && 'victim' in o && 'group' in o && ('discovered' in o || 'attackdate' in o);
+const isRlGroup = (o) => o && typeof o === 'object' && 'name' in o && ('locations' in o || 'url' in o) && !('victim' in o);
+function rlGroupName(slug) { const g = typeof groupFor === 'function' && DB.tables && DB.tables.groups ? groupFor(slug) : null; if (g) return g.name; const s = String(slug || '').trim(); return s ? s[0].toUpperCase() + s.slice(1) : 'Unknown'; }
+function rlVictimsToSheet(list, name) {
+  const rows = list.filter(isRlVictim).map((o) => {
+    const victim = String(o.victim || '').trim(); const press = o.press && typeof o.press === 'object' ? (o.press.source || o.press.link || '') : (o.press || '');
+    return [rlGroupName(o.group), victim, /\*{2,}/.test(victim) ? 'Masked' : victim ? 'Named' : 'Placeholder', o.domain || '', o.country || '', o.activity || '', dateClean(o.attackdate || ''), dateClean(o.discovered || o.attackdate || ''), o.data_size || '', o.claim_url || '', o.url || '', press, String(o.description || '').replace(/\s+/g, ' ').slice(0, 400)];
+  });
+  return { name: name || 'ransomware.live victims', header: RL_HEADER, rows };
+}
+function rlGroupsToSheet(list) {
+  const parse = (v) => { if (Array.isArray(v)) return v; try { return JSON.parse(String(v || '[]').replace(/'/g, '"').replace(/\b(True|False|None)\b/g, (m) => ({ True: 'true', False: 'false', None: 'null' }[m]))); } catch (e) { return []; } };
+  const rows = list.filter(isRlGroup).map((o) => { const locs = parse(o.locations); const sites = locs.map((l) => l.slug || (l.fqdn ? 'http://' + l.fqdn + '/' : '')).filter(Boolean); const live = locs.some((l) => l.available); return [o.name, sites.join('\n'), locs.length ? (live ? 'Yes' : 'No') : '', dateClean(o.added_date || ''), 'ransomware.live', o.altname || '']; });
+  return { name: 'ransomware.live groups', header: ['Name', 'Leak site', 'Online?', 'Date added', 'Source', 'Also known as'], rows };
+}
+/* any JSON file -> sheets: ransomware.live victims or groups, a plain array of objects, or this page's own sheet export */
+function jsonToSheets(j, fileName) {
+  if (Array.isArray(j) && j.length && j[0] && j[0].header && j[0].rows) return j;
+  if (j && Array.isArray(j.sheets)) return j.sheets;
+  const arr = Array.isArray(j) ? j : (j && Array.isArray(j.data)) ? j.data : (j && Array.isArray(j.victims)) ? j.victims : null;
+  if (!arr || !arr.length) return [];
+  if (arr.some(isRlVictim)) return [rlVictimsToSheet(arr, 'ransomware.live victims')];
+  if (arr.some(isRlGroup)) return [rlGroupsToSheet(arr)];
+  if (typeof arr[0] === 'object') { const keys = Array.from(new Set(arr.flatMap((o) => Object.keys(o || {})))); return [{ name: (fileName || 'json').replace(/\.json$/i, ''), header: keys, rows: arr.map((o) => keys.map((k) => (o[k] == null ? '' : typeof o[k] === 'object' ? JSON.stringify(o[k]) : String(o[k])))) }]; }
+  return [];
+}
+
+/* months between the last known date and today */
+function monthsSince(iso) {
+  const out = []; const now = new Date(); let y = +iso.slice(0, 4), m = +iso.slice(5, 7); const ey = now.getFullYear(), em = now.getMonth() + 1;
+  while (y < ey || (y === ey && m <= em)) { out.push([y, m]); m++; if (m > 12) { m = 1; y++; } }
+  return out;
+}
+function lastKnownDate() { let last = ''; for (const r of DB.tables.victims.rows) { const d = dateOf(r.created); if (d > last && d <= todayISO()) last = d; } return last || DB.asOf || todayISO(); }
+
+async function syncNow() {
+  const last = lastKnownDate(); const months = monthsSince(last);
+  const m = modal({ title: 'Sync new victims from ransomware.live', body: `<p style="margin-top:0">Newest victim in this page: <b>${last}</b>. Fetching ${months.length} month${months.length === 1 ? '' : 's'} of listings and keeping everything discovered on or after that day.</p><div data-log style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:var(--ink-2);max-height:40vh;overflow:auto"></div>`, foot: `<button class="btn" data-x>Cancel</button>` });
+  const log = (s) => { const el = m.el.querySelector('[data-log]'); if (el) el.textContent += s + '\n'; };
+  const all = []; let groups = null;
+  try {
+    for (const [y, mo] of months) {
+      const url = `${RL_API}/victims/${y}/${pad(mo)}`; log(`GET ${url}`);
+      const res = await fetch(url, { headers: { Accept: 'application/json' } }); if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const list = await res.json(); const keep = list.filter((o) => dateOf(dateClean(o.discovered || o.attackdate || '')) >= last); log(`  ${fmtN(list.length)} listings, ${fmtN(keep.length)} on or after ${last}`); all.push(...keep);
+    }
+    try { log(`GET ${RL_API}/groups`); const res = await fetch(`${RL_API}/groups`); if (res.ok) groups = await res.json(); } catch (e) { log('  groups skipped: ' + e.message); }
+  } catch (e) {
+    m.close();
+    syncFallback(last, months, e);
+    return;
+  }
+  const sheets = [rlVictimsToSheet(all, `ransomware.live victims since ${last}`)]; if (groups) sheets.push(rlGroupsToSheet(groups));
+  const files = await loadedFiles(); files.push({ name: `ransomware.live sync ${nowISO()}`, when: nowISO(), sheets }); await saveLoadedFiles(files);
+  log(`Saved ${fmtN(all.length)} listings. Reloading...`); busy('Merging the new victims...'); setTimeout(() => location.reload(), 600);
+}
+function syncFallback(last, months, err) {
+  const links = months.map(([y, mo]) => `${RL_API}/victims/${y}/${pad(mo)}`);
+  const py = helperScript(last);
+  modal({ title: 'Your browser blocked the direct download', wide: true, body: `
+    <p style="margin-top:0">ransomware.live's API does not allow web pages to call it directly (${esc(err.message || 'blocked by the browser')}), so the page cannot fetch on its own. Two ways that take under a minute, no install needed for the first:</p>
+    <h4 style="margin:12px 0 6px">1. Open, save, drop (no tools needed)</h4>
+    <ol style="margin:0 0 8px 18px;font-size:13px">
+      <li>Open each link below. The browser shows the JSON listing for that month.</li>
+      <li>Press <kbd>Ctrl</kbd>+<kbd>S</kbd> and save it as a .json file (any name).</li>
+      <li>Click <b>Load the saved files</b> here, or use <b>Data</b> in the top bar later. New victims are added, duplicates skipped.</li></ol>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${links.map((u) => `<a class="btn sm" href="${u}" target="_blank" rel="noopener">${ico('ext')}${esc(u.replace(RL_API + '/victims/', 'Victims '))}</a>`).join('')}<a class="btn sm" href="${RL_API}/groups" target="_blank" rel="noopener">${ico('ext')}Groups and leak-site status</a></div>
+    <button class="btn accent" data-loadjson>${ico('upload')}Load the saved files</button>
+    <h4 style="margin:16px 0 6px">2. One small script (needs Python on the computer)</h4>
+    <p style="margin:0 0 8px;font-size:13px">Download <code>sync_victims.py</code>, double-click it (or run <code>python sync_victims.py</code>). It fetches everything since ${esc(last)} and writes <code>ransomware_live_since_${esc(last)}.json</code> next to it. Load that file with <b>Data</b>.</p>
+    <button class="btn" data-py>${ico('download')}Download sync_victims.py</button>
+    <p style="font-size:12px;color:var(--ink-3);margin-top:14px">Why: a page opened from your disk may only talk to sites that explicitly allow it, and ransomware.live does not. If that ever changes, the Sync button will simply work.</p>`,
+    wire: (bg, close) => {
+      bg.querySelector('[data-py]').onclick = () => download('sync_victims.py', py, 'text/x-python');
+      bg.querySelector('[data-loadjson]').onclick = async () => { const inp = $('#file'); inp.accept = '.json,.xlsx,.csv'; inp.multiple = true; inp.value = ''; inp.onchange = async () => { const parsed = await parseFiles(Array.from(inp.files)); if (!parsed.length) return; const files = await loadedFiles(); files.push(...parsed); await saveLoadedFiles(files); close(); busy('Merging the new victims...'); location.reload(); }; inp.click(); };
+    } });
+}
+function helperScript(last) {
+  return `#!/usr/bin/env python3
+"""Fetch ransomware.live victims discovered since ${last} and write them as JSON for the Samurai Scan workbench.
+Run:  python sync_victims.py            (uses the Python standard library only)
+Then: open the workbench, click Data, add the ransomware_live_since_*.json file."""
+import json, sys, urllib.request, datetime as dt
+SINCE = sys.argv[1] if len(sys.argv) > 1 else "${last}"
+API = "${RL_API}"
+def get(url):
+    req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "samurai-scan-sync"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.load(r)
+y, m = int(SINCE[:4]), int(SINCE[5:7]); today = dt.date.today(); out = []
+while (y, m) <= (today.year, today.month):
+    url = f"{API}/victims/{y}/{m:02d}"; print("GET", url)
+    rows = get(url); keep = [r for r in rows if str(r.get("discovered") or r.get("attackdate") or "")[:10] >= SINCE]
+    print(f"  {len(rows)} listings, {len(keep)} since {SINCE}"); out += keep
+    m += 1
+    if m > 12: m = 1; y += 1
+try:
+    groups = get(f"{API}/groups"); print(f"GET {API}/groups: {len(groups)} groups")
+except Exception as e:
+    groups = None; print("groups skipped:", e)
+name = f"ransomware_live_since_{SINCE}.json"
+with open(name, "w", encoding="utf-8") as f:
+    json.dump(out, f, ensure_ascii=False)
+print(f"wrote {name} with {len(out)} victims")
+if groups:
+    with open("ransomware_live_groups.json", "w", encoding="utf-8") as f:
+        json.dump(groups, f, ensure_ascii=False)
+    print("wrote ransomware_live_groups.json")
+input("Done. Press Enter to close.") if sys.stdin and sys.stdin.isatty() else None
+`;
+}
+
 /* ---- 30_tabs.js ---- */
 /* ===== tabs, dashboard, investigator log, backup, boot ===== */
 const APP = { views: {}, me: '' };
@@ -1532,7 +1649,7 @@ onChange((tid, ev) => {
     rebuildT = setTimeout(() => { if (tid === 'groups' && ev.type === 'edit') { for (const v of DB.tables.victims.rows) { const g = groupFor(v.group); if (g) { v.onion = g.onion; v.collector = g.collector; v.sitestat = g.site; v._s = null; } } } recount(); buildMixed(); APP.counts(); }, 80);
   } else APP.counts();
 });
-APP.stat = function () { $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-08 03:23 UTC${APP.filesCount ? ` · +${APP.filesCount} loaded file${APP.filesCount === 1 ? '' : 's'}` : ''}` : `Data from ${APP.filesCount || 0} file${APP.filesCount === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`; };
+APP.stat = function () { $('#stat').textContent = DB.embedded ? `Ledger as of ${DB.asOf} · built 2026-10-08 03:32 UTC${APP.filesCount ? ` · +${APP.filesCount} loaded file${APP.filesCount === 1 ? '' : 's'}` : ''}` : `Data from ${APP.filesCount || 0} file${APP.filesCount === 1 ? '' : 's'} · ${fmtN(DB.tables.victims.rows.length)} victims · ${fmtN(DB.tables.needles.rows.length)} Needles · ${fmtN(DB.tables.groups.rows.length)} groups`; };
 APP.counts = function () {
   if (DB.tables.mixed) APP.stat();
   const n = (id, v) => { const e = $('#n-' + id); if (e) e.textContent = fmtN(v); };
@@ -1589,7 +1706,7 @@ function mountToday(host) {
   host.innerHTML = `<div class="bar"><h2>Today's updates</h2><span class="meta" data-meta></span><span class="sp"></span>
     <label class="meta">Day <input type="date" data-day value="${APP.day}" style="height:30px;border:1px solid var(--grid);border-radius:5px;padding:0 6px"></label>
     <button class="btn sm" data-prev>‹ Previous day</button><button class="btn sm" data-next>Next day ›</button><button class="btn sm" data-asof>Ledger date</button>
-    <button class="btn sm accent" data-log>${ico('flag')}Log an update</button><button class="btn sm" data-addv>${ico('plus')}Add victim</button></div>
+    <button class="btn sm primary" data-sync>${ico('refresh')}Sync new victims</button><button class="btn sm accent" data-log>${ico('flag')}Log an update</button><button class="btn sm" data-addv>${ico('plus')}Add victim</button></div>
     <div class="dash"><div class="cards" data-cards></div><div class="cols2"><div class="panel"><div class="ph">Groups posting that day<span class="sp"></span><small style="font-weight:400;color:var(--ink-3)">click to open</small></div><div class="pb" data-groups></div></div>
     <div class="panel"><div class="ph">Needles that day<span class="sp"></span></div><div class="pb" data-needles></div></div>
     <div class="panel"><div class="ph">Investigator log that day<span class="sp"></span><button class="btn sm" data-digest>${ico('copy')}Copy digest</button></div><div class="pb" data-journal></div></div>
@@ -1638,6 +1755,7 @@ function mountToday(host) {
   $('[data-next]', host).onclick = () => { APP.day = addDays(APP.day, 1); $('[data-day]', host).value = APP.day; render(); };
   $('[data-asof]', host).onclick = () => { APP.day = DB.asOf; $('[data-day]', host).value = APP.day; render(); };
   $('[data-log]', host).onclick = () => APP.go('journal', (v) => v.prefill({ date: APP.day }));
+  $('[data-sync]', host).onclick = syncNow;
   $('[data-addv]', host).onclick = () => addForm(DB.tables.victims, { created: APP.day + ' ' + nowISO().slice(11) }, () => render());
   $('[data-digest]', host).onclick = () => copyText(APP.digest(APP.day));
   onChange(() => { if (host.classList.contains('active')) render(); else view.dirty = true; });
@@ -1770,6 +1888,7 @@ APP.help = function () {
   <h4>Editing</h4><p>Double-click a cell to edit it. Enter saves, Escape cancels. Click a row for the detail panel with every field, copy buttons and related rows. Select rows with the checkboxes to copy, export or delete them. Undo is in the toolbar. Everything is saved in this browser; use <b>Backup</b> to download your changes or move them to another computer.</p>
   <h4>Onion links</h4><p>Addresses ending in .onion show a TOR tag. Click one to copy it, then open it in Tor Browser. Other links open in a new tab.</p>
   <h4>Export and import</h4><p>Export gives Excel, CSV or JSON of what you see, or the whole database as one workbook with every tab. Import merges rows from Excel, CSV or JSON with a column mapping; duplicates are skipped.</p>
+  <h4>Sync</h4><p><b>Sync</b> in the top bar asks ransomware.live for every listing discovered since the newest victim in this page and merges it in. Browsers normally block that direct call, so Sync then shows the month links to open and save as JSON (two clicks each) and a small Python script that does the same; the saved JSON files load through <b>Data</b> or straight from that dialog. Group leak-site addresses and up/down status from ransomware.live come along too.</p>
   <h4>Loading data</h4><p>${DB.embedded ? `The packed ledger is current to ${DB.asOf}. <b>Data</b> in the top bar merges more files (a newer ledger CSV, tracker or assignments workbook, or exports from this page) without rebuilding.` : 'This page has no data inside it. <b>Data</b> in the top bar shows the files you loaded, lets you add newer ones or remove old ones, and remembers them in this browser.'} Recognised sheets: ledger victims (Group, Victim, Discovered…), Needle trackers (Name, Analyst, Wagtail…), leak-site and assignment sheets, and this page's own Victims, Needles, Groups and Investigator exports. Anything else becomes a raw sheet.</p>` });
 };
 
@@ -1805,7 +1924,7 @@ async function boot() {
   $$('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => APP.go(b.dataset.tab)));
   $('#btnMe').onclick = () => modal({ title: 'Your name', body: `<label class="form" style="display:block">Analyst name<input data-me value="${esc(APP.me)}" list="dl-analysts" style="height:32px;border:1px solid var(--grid);border-radius:5px;padding:0 8px;width:100%;margin-top:4px"></label><p style="font-size:12.5px;color:var(--ink-3)">Used as the default analyst on log entries and Needles you add.</p>`, foot: `<button class="btn" data-x>Cancel</button><button class="btn accent" data-ok>Save</button>`, wire: (bg, close) => { const save = () => { APP.setMe(bg.querySelector('[data-me]').value); close(); }; bg.querySelector('[data-ok]').onclick = save; bg.querySelector('[data-me]').onkeydown = (e) => { if (e.key === 'Enter') save(); }; } });
   $('#btnBackup').onclick = APP.backup;
-  APP.dataDialog = dataDialog; $('#btnData').onclick = dataDialog;
+  APP.dataDialog = dataDialog; $('#btnData').onclick = dataDialog; $('#btnSync').onclick = syncNow;
   $('#btnHelp').onclick = APP.help;
   document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); undo(); } });
   APP.counts(); updateUndo();

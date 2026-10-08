@@ -95,7 +95,7 @@ function mountToday(host) {
   host.innerHTML = `<div class="bar"><h2>Today's updates</h2><span class="meta" data-meta></span><span class="sp"></span>
     <label class="meta">Day <input type="date" data-day value="${APP.day}" style="height:30px;border:1px solid var(--grid);border-radius:5px;padding:0 6px"></label>
     <button class="btn sm" data-prev>‹ Previous day</button><button class="btn sm" data-next>Next day ›</button><button class="btn sm" data-asof>Ledger date</button>
-    <button class="btn sm accent" data-log>${ico('flag')}Log an update</button><button class="btn sm" data-addv>${ico('plus')}Add victim</button></div>
+    <button class="btn sm primary" data-sync>${ico('refresh')}Sync new victims</button><button class="btn sm accent" data-log>${ico('flag')}Log an update</button><button class="btn sm" data-addv>${ico('plus')}Add victim</button></div>
     <div class="dash"><div class="cards" data-cards></div><div class="cols2"><div class="panel"><div class="ph">Groups posting that day<span class="sp"></span><small style="font-weight:400;color:var(--ink-3)">click to open</small></div><div class="pb" data-groups></div></div>
     <div class="panel"><div class="ph">Needles that day<span class="sp"></span></div><div class="pb" data-needles></div></div>
     <div class="panel"><div class="ph">Investigator log that day<span class="sp"></span><button class="btn sm" data-digest>${ico('copy')}Copy digest</button></div><div class="pb" data-journal></div></div>
@@ -144,6 +144,7 @@ function mountToday(host) {
   $('[data-next]', host).onclick = () => { APP.day = addDays(APP.day, 1); $('[data-day]', host).value = APP.day; render(); };
   $('[data-asof]', host).onclick = () => { APP.day = DB.asOf; $('[data-day]', host).value = APP.day; render(); };
   $('[data-log]', host).onclick = () => APP.go('journal', (v) => v.prefill({ date: APP.day }));
+  $('[data-sync]', host).onclick = syncNow;
   $('[data-addv]', host).onclick = () => addForm(DB.tables.victims, { created: APP.day + ' ' + nowISO().slice(11) }, () => render());
   $('[data-digest]', host).onclick = () => copyText(APP.digest(APP.day));
   onChange(() => { if (host.classList.contains('active')) render(); else view.dirty = true; });
@@ -276,6 +277,7 @@ APP.help = function () {
   <h4>Editing</h4><p>Double-click a cell to edit it. Enter saves, Escape cancels. Click a row for the detail panel with every field, copy buttons and related rows. Select rows with the checkboxes to copy, export or delete them. Undo is in the toolbar. Everything is saved in this browser; use <b>Backup</b> to download your changes or move them to another computer.</p>
   <h4>Onion links</h4><p>Addresses ending in .onion show a TOR tag. Click one to copy it, then open it in Tor Browser. Other links open in a new tab.</p>
   <h4>Export and import</h4><p>Export gives Excel, CSV or JSON of what you see, or the whole database as one workbook with every tab. Import merges rows from Excel, CSV or JSON with a column mapping; duplicates are skipped.</p>
+  <h4>Sync</h4><p><b>Sync</b> in the top bar asks ransomware.live for every listing discovered since the newest victim in this page and merges it in. Browsers normally block that direct call, so Sync then shows the month links to open and save as JSON (two clicks each) and a small Python script that does the same; the saved JSON files load through <b>Data</b> or straight from that dialog. Group leak-site addresses and up/down status from ransomware.live come along too.</p>
   <h4>Loading data</h4><p>${DB.embedded ? `The packed ledger is current to ${DB.asOf}. <b>Data</b> in the top bar merges more files (a newer ledger CSV, tracker or assignments workbook, or exports from this page) without rebuilding.` : 'This page has no data inside it. <b>Data</b> in the top bar shows the files you loaded, lets you add newer ones or remove old ones, and remembers them in this browser.'} Recognised sheets: ledger victims (Group, Victim, Discovered…), Needle trackers (Name, Analyst, Wagtail…), leak-site and assignment sheets, and this page's own Victims, Needles, Groups and Investigator exports. Anything else becomes a raw sheet.</p>` });
 };
 
@@ -311,7 +313,7 @@ async function boot() {
   $$('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => APP.go(b.dataset.tab)));
   $('#btnMe').onclick = () => modal({ title: 'Your name', body: `<label class="form" style="display:block">Analyst name<input data-me value="${esc(APP.me)}" list="dl-analysts" style="height:32px;border:1px solid var(--grid);border-radius:5px;padding:0 8px;width:100%;margin-top:4px"></label><p style="font-size:12.5px;color:var(--ink-3)">Used as the default analyst on log entries and Needles you add.</p>`, foot: `<button class="btn" data-x>Cancel</button><button class="btn accent" data-ok>Save</button>`, wire: (bg, close) => { const save = () => { APP.setMe(bg.querySelector('[data-me]').value); close(); }; bg.querySelector('[data-ok]').onclick = save; bg.querySelector('[data-me]').onkeydown = (e) => { if (e.key === 'Enter') save(); }; } });
   $('#btnBackup').onclick = APP.backup;
-  APP.dataDialog = dataDialog; $('#btnData').onclick = dataDialog;
+  APP.dataDialog = dataDialog; $('#btnData').onclick = dataDialog; $('#btnSync').onclick = syncNow;
   $('#btnHelp').onclick = APP.help;
   document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); undo(); } });
   APP.counts(); updateUndo();

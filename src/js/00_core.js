@@ -109,7 +109,7 @@ function pickFile(accept) { return new Promise((ok) => { const f = $('#file'); f
 async function readTable(file) {
   /* -> [{name, header, rows}] */
   const nm = file.name.toLowerCase();
-  if (nm.endsWith('.json')) { const j = JSON.parse(await file.text()); return j; }
+  if (nm.endsWith('.json')) { const j = JSON.parse(await file.text()); return jsonToSheets(j, file.name); }
   if (nm.endsWith('.csv') || nm.endsWith('.txt')) {
     const X = await ensureXLSX(); const wb = X.read(await file.text(), { type: 'string', raw: true });
     return wb.SheetNames.map((n) => sheetToTable(X, wb.Sheets[n], n));

@@ -78,9 +78,9 @@ function mergeAll(base, files) {
 
   for (const f of files) {
     const fs = { name: f.name, kinds: [] };
-    for (const s of f.sheets) {
-      if (!s.header || !s.rows || !s.rows.length) continue;
-      const kind = classifySheet(s.header); fs.kinds.push(`${s.name}: ${kind}`);
+    const ordered = f.sheets.map((s) => ({ s, kind: s.header && s.rows && s.rows.length ? classifySheet(s.header) : 'empty' })).sort((a, b) => ({ groups: 0, assign: 1 }[a.kind] ?? 2) - ({ groups: 0, assign: 1 }[b.kind] ?? 2));
+    for (const { s, kind } of ordered) {
+      if (kind === 'empty') continue; fs.kinds.push(`${s.name}: ${kind}`);
       const header = s.header.map((h) => String(h || '').trim());
       if (kind === 'mixed') { stats.skipped.push(`${f.name} › ${s.name} (mixed view, derived)`); continue; }
       if (kind === 'victims') {
